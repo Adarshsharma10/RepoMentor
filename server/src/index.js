@@ -1,0 +1,19 @@
+import dns from "node:dns";
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
+import 'dotenv/config';
+import { createApp } from './app.js';
+import { connectDatabase } from './config/database.js';
+
+const { PORT = 4000, MONGODB_URI, JWT_SECRET } = process.env;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  console.error('JWT_SECRET must be set to a random value of at least 32 characters');
+  process.exit(1);
+}
+
+try {
+  await connectDatabase(MONGODB_URI);
+  createApp().listen(PORT, () => console.log(`RepoMentor API listening on port ${PORT}`));
+} catch (error) {
+  console.error('Could not start the API:', error.message);
+  process.exit(1);
+}

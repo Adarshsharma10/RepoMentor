@@ -17,7 +17,7 @@ export function errorHandler(error, _req, res, _next) {
       ? 'Malformed JSON request'
       : error.type === 'entity.too.large'
         ? 'Request body too large'
-        : 'Invalid request';
+        : error.publicMessage || 'Invalid request';
     return res.status(clientStatus).json({ error: message });
   }
   console.error(error);

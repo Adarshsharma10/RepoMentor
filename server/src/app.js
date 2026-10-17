@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
 import authRouter from './routes/auth.js';
+import reposRouter from './routes/repos.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -19,6 +20,7 @@ export function createApp() {
     });
   });
   app.use('/api/auth', authRouter);
+  app.use('/api/repos', reposRouter);
   app.use(notFound);
   app.use(errorHandler);
   return app;

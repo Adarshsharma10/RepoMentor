@@ -2,10 +2,12 @@ import { GoogleGenAI } from '@google/genai';
 
 const MODEL = 'gemini-embedding-001';
 const VECTOR_DIMENSIONS = 768;
-const MAX_BATCH_SIZE = 100;
+const MAX_BATCH_SIZE = 20;
 const REQUEST_INTERVAL_MS = 1000;
 const MAX_ATTEMPTS = 5;
 const RETRY_BASE_MS = 1000;
+const RATE_LIMIT_RETRY_BASE_MS = 5000;
+const MAX_RETRY_DELAY_MS = 60000;
 
 let client;
 let nextRequestAt = 0;
@@ -58,6 +60,10 @@ function isRetryable(error) {
     || /resource_exhausted|rate limit/i.test(error.message || '');
 }
 
+function isRateLimit(error) {
+  return errorStatus(error) === 429 || /resource_exhausted|rate limit/i.test(error.message || '');
+}
+
 async function waitForRequestSlot() {
   const now = Date.now();
   const requestAt = Math.max(now, nextRequestAt);
@@ -94,7 +100,9 @@ async function requestEmbeddings(contents, taskType) {
     } catch (error) {
       if (error instanceof EmbeddingError) throw error;
       if (attempt < MAX_ATTEMPTS && isRetryable(error)) {
-        await new Promise(resolve => setTimeout(resolve, RETRY_BASE_MS * (2 ** (attempt - 1))));
+        const baseDelay = isRateLimit(error) ? RATE_LIMIT_RETRY_BASE_MS : RETRY_BASE_MS;
+        const delay = Math.min(baseDelay * (2 ** (attempt - 1)), MAX_RETRY_DELAY_MS);
+        await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
       throw safeEmbeddingError(error);

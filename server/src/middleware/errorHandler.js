@@ -4,6 +4,9 @@ export function notFound(_req, res) {
 
 export function errorHandler(error, _req, res, _next) {
   if (error.code === 11000) {
+    if (error.keyPattern?.userId && error.keyPattern?.url) {
+      return res.status(409).json({ error: 'This repository is already added.' });
+    }
     return res.status(409).json({ error: 'An account with this email already exists' });
   }
   if (error.name === 'ValidationError') {

@@ -13,4 +13,6 @@ const repoSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+repoSchema.index({ userId: 1, url: 1 }, { unique: true });
+
 export const Repo = mongoose.model('Repo', repoSchema);

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import mongoose from 'mongoose';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { Chunk } from '../models/Chunk.js';
@@ -8,6 +9,24 @@ import { embedQuery } from '../services/embeddings.js';
 
 const router = Router();
 router.use(requireAuth);
+
+const addRepoLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  keyGenerator: req => req.auth.sub,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Repository add limit reached. Try again in an hour.' }
+});
+
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  keyGenerator: req => req.auth.sub,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Search limit reached. Try again in a minute.' }
+});
 
 function parseGitHubUrl(value) {
   if (typeof value !== 'string' || !value.trim()) return null;
@@ -32,10 +51,18 @@ function isValidRepoId(id) {
   return mongoose.isValidObjectId(id);
 }
 
-router.post('/', async (req, res, next) => {
+router.post('/', addRepoLimiter, async (req, res, next) => {
   try {
     const parsedUrl = parseGitHubUrl(req.body?.url);
     if (!parsedUrl) return res.status(400).json({ error: 'Enter a valid GitHub repository URL, such as https://github.com/owner/name.' });
+
+    const existingRepo = await Repo.exists({ userId: req.auth.sub, url: parsedUrl.url });
+    if (existingRepo) return res.status(409).json({ error: 'This repository is already added.' });
+
+    const repoCount = await Repo.countDocuments({ userId: req.auth.sub });
+    if (repoCount >= 5) {
+      return res.status(409).json({ error: 'You can add up to 5 repositories. Delete one before adding another.' });
+    }
 
     const repo = await Repo.create({
       userId: req.auth.sub,
@@ -66,7 +93,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/:id/search', async (req, res, next) => {
+router.post('/:id/search', searchLimiter, async (req, res, next) => {
   try {
     if (!isValidRepoId(req.params.id)) return res.status(404).json({ error: 'Repository not found' });
     const repo = await Repo.findOne({ _id: req.params.id, userId: req.auth.sub });

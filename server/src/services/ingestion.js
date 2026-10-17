@@ -6,7 +6,7 @@ import { embedDocuments } from './embeddings.js';
 const MAX_FILES = 500;
 const MAX_CHUNKS = 1500;
 const MAX_FILE_BYTES = 200 * 1024;
-const MAX_EMBEDDING_TEXT_LENGTH = 6000;
+const MAX_EMBEDDING_TEXT_LENGTH = 4000;
 const CHUNK_LINES = 60;
 const CHUNK_OVERLAP = 10;
 const EXCLUDED_DIRECTORIES = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
@@ -55,6 +55,7 @@ function isIndexableFile(file) {
   const pathParts = file.path.split('/');
   const baseName = pathParts.at(-1).toLowerCase();
   if (pathParts.some(part => EXCLUDED_DIRECTORIES.has(part.toLowerCase()))) return false;
+  if (baseName.startsWith('license') || baseName.endsWith('.svg') || baseName.endsWith('.ipynb')) return false;
   if (EXCLUDED_FILES.has(baseName) || baseName.endsWith('.lock')) return false;
   if (/\.min\.[^.]+$/i.test(baseName)) return false;
   if (file.size > MAX_FILE_BYTES) return false;

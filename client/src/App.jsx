@@ -36,6 +36,10 @@ export default function App() {
   const [repoUrl, setRepoUrl] = useState('');
   const [addingRepo, setAddingRepo] = useState(false);
   const [repoMessage, setRepoMessage] = useState('');
+  const [searchQueries, setSearchQueries] = useState({});
+  const [searchResults, setSearchResults] = useState({});
+  const [searchBusy, setSearchBusy] = useState({});
+  const [searchErrors, setSearchErrors] = useState({});
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('repomentor-user') || 'null'); } catch { return null; }
   });
@@ -119,6 +123,25 @@ export default function App() {
     }
   }
 
+  async function searchRepository(event, repo) {
+    event.preventDefault();
+    const query = (searchQueries[repo._id] || '').trim();
+    setSearchBusy(current => ({ ...current, [repo._id]: true }));
+    setSearchErrors(current => ({ ...current, [repo._id]: '' }));
+    setSearchResults(current => ({ ...current, [repo._id]: [] }));
+    try {
+      const data = await apiRequest(`/api/repos/${repo._id}/search`, {
+        method: 'POST',
+        body: JSON.stringify({ query, limit: 5 })
+      });
+      setSearchResults(current => ({ ...current, [repo._id]: data.results }));
+    } catch (requestError) {
+      setSearchErrors(current => ({ ...current, [repo._id]: requestError.message }));
+    } finally {
+      setSearchBusy(current => ({ ...current, [repo._id]: false }));
+    }
+  }
+
   return <main className="page-shell">
     <header className="topbar"><a className="brand" href="#home"><Mark /><span>Repo<span className="brand-light">Mentor</span></span></a><span className="top-note">Your codebase, understood.</span></header>
     {user ? <section className="repo-workspace">
@@ -138,7 +161,22 @@ export default function App() {
       <div className="repo-list-heading"><h2>My repositories</h2><span>{repos.length} {repos.length === 1 ? 'repository' : 'repositories'}</span></div>
       {reposBusy ? <div className="repo-empty">Loading your repositories…</div> : repos.length === 0 ? <div className="repo-empty">No repositories yet. Add one above to get started.</div> : <div className="repo-list">
         {repos.map(repo => <article className="repo-item" key={repo._id}>
-          <div className="repo-main"><a href={repo.url} target="_blank" rel="noreferrer">{repo.owner}/{repo.name} ↗</a><span className={`status-badge status-${repo.status}`}>{repo.status}</span>{repo.errorMessage && <small className="repo-item-error">{repo.errorMessage}</small>}</div>
+          <div className="repo-main"><a href={repo.url} target="_blank" rel="noreferrer">{repo.owner}/{repo.name} ↗</a><span className={`status-badge status-${repo.status}`}>{repo.status}</span>{repo.errorMessage && <small className="repo-item-error">{repo.errorMessage}</small>}
+            {repo.status === 'ready' && <div className="repo-search">
+              <form className="repo-search-form" onSubmit={event => searchRepository(event, repo)}>
+                <label className="field"><span>Search this repo</span><input type="text" minLength={3} maxLength={500} placeholder="What does this code do?" value={searchQueries[repo._id] || ''} onChange={event => setSearchQueries(current => ({ ...current, [repo._id]: event.target.value }))} required /></label>
+                <button className="text-button" type="submit" disabled={searchBusy[repo._id]}>{searchBusy[repo._id] ? 'Searching…' : 'Search'}</button>
+              </form>
+              {searchErrors[repo._id] && <p className="error-message repo-error" role="alert">{searchErrors[repo._id]}</p>}
+              {searchResults[repo._id]?.length > 0 && <div className="search-results">
+                {searchResults[repo._id].map(result => <article className="search-result" key={`${result.filePath}:${result.startLine}`}>
+                  <div className="search-result-heading"><strong>{result.filePath}:{result.startLine}-{result.endLine}</strong><span>score {result.score.toFixed(3)}</span></div>
+                  <pre><code>{result.code}</code></pre>
+                </article>)}
+              </div>}
+              {searchResults[repo._id]?.length === 0 && !searchBusy[repo._id] && !searchErrors[repo._id] && <p className="no-search-results">No matching chunks found.</p>}
+            </div>}
+          </div>
           <div className="repo-counts"><span><strong>{repo.fileCount}</strong> files</span><span><strong>{repo.chunkCount}</strong> chunks</span></div>
           <button className="delete-button" onClick={() => deleteRepository(repo)} aria-label={`Delete ${repo.owner}/${repo.name}`}>Delete</button>
         </article>)}

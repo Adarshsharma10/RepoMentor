@@ -9,6 +9,9 @@ export function errorHandler(error, _req, res, _next) {
   if (error.name === 'ValidationError') {
     return res.status(400).json({ error: 'Please check the submitted information' });
   }
+  if (error.publicMessage && Number.isInteger(error.status) && error.status >= 400 && error.status < 600) {
+    return res.status(error.status).json({ error: error.publicMessage });
+  }
   const clientStatus = Number.isInteger(error.status) && error.status >= 400 && error.status < 500
     ? error.status
     : null;

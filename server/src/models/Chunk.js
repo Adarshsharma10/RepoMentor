@@ -7,7 +7,8 @@ const chunkSchema = new mongoose.Schema({
   startLine: { type: Number, required: true, min: 1 },
   endLine: { type: Number, required: true, min: 1 },
   language: { type: String, required: true },
-  code: { type: String, required: true }
+  code: { type: String, required: true },
+  embedding: { type: [Number], select: false }
 });
 
 export const Chunk = mongoose.model('Chunk', chunkSchema);

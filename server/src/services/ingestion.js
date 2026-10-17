@@ -1,9 +1,12 @@
 import { Octokit } from 'octokit';
 import { Repo } from '../models/Repo.js';
 import { Chunk } from '../models/Chunk.js';
+import { embedDocuments } from './embeddings.js';
 
 const MAX_FILES = 500;
+const MAX_CHUNKS = 1500;
 const MAX_FILE_BYTES = 200 * 1024;
+const MAX_EMBEDDING_TEXT_LENGTH = 6000;
 const CHUNK_LINES = 60;
 const CHUNK_OVERLAP = 10;
 const EXCLUDED_DIRECTORIES = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
@@ -137,11 +140,30 @@ export async function ingestRepository(repoDocument) {
       throw new IngestionError(413, `Repository is too large to index: it has more than ${MAX_FILES} supported files.`);
     }
 
-    const fileChunks = await mapWithConcurrency(files, 5, file =>
-      fetchAndChunkFile(octokit, repoDocument.owner, repoDocument.name, defaultBranch, file)
-    );
+    let chunkCount = 0;
+    let chunkLimitError;
+    const fileChunks = await mapWithConcurrency(files, 5, async file => {
+      if (chunkLimitError) throw chunkLimitError;
+      const result = await fetchAndChunkFile(octokit, repoDocument.owner, repoDocument.name, defaultBranch, file);
+      if (chunkLimitError) return null;
+      if (result && chunkCount + result.length > MAX_CHUNKS) {
+        chunkLimitError = new IngestionError(413, `Repository is too large to index: it has more than ${MAX_CHUNKS} chunks.`);
+        throw chunkLimitError;
+      }
+      if (result) chunkCount += result.length;
+      return result;
+    });
     const indexedFiles = fileChunks.filter(result => result !== null);
     const chunks = indexedFiles.flat().map(chunk => ({ ...chunk, repoId, userId }));
+    if (chunks.length > MAX_CHUNKS) {
+      throw new IngestionError(413, `Repository is too large to index: it has more than ${MAX_CHUNKS} chunks.`);
+    }
+
+    const embeddingTexts = chunks.map(chunk =>
+      `File: ${chunk.filePath}\n${chunk.code}`.slice(0, MAX_EMBEDDING_TEXT_LENGTH)
+    );
+    const embeddings = await embedDocuments(embeddingTexts);
+    chunks.forEach((chunk, index) => { chunk.embedding = embeddings[index]; });
 
     await Chunk.deleteMany({ repoId, userId });
     if (chunks.length) await Chunk.insertMany(chunks, { ordered: true });
@@ -150,7 +172,7 @@ export async function ingestRepository(repoDocument) {
     }, { new: true });
   } catch (error) {
     await Chunk.deleteMany({ repoId, userId });
-    const handledError = error instanceof IngestionError ? error : translateGitHubError(error);
+    const handledError = error.publicMessage ? error : translateGitHubError(error);
     const errorMessage = handledError.publicMessage || 'Repository ingestion failed. Please try again.';
     await Repo.updateOne({ _id: repoId }, {
       $set: { status: 'failed', errorMessage, fileCount: 0, chunkCount: 0 }

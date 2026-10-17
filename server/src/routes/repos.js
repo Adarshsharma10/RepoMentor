@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { Chunk } from '../models/Chunk.js';
 import { Repo } from '../models/Repo.js';
 import { ingestRepository } from '../services/ingestion.js';
+import { embedQuery } from '../services/embeddings.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -45,9 +46,9 @@ router.post('/', async (req, res, next) => {
       const indexedRepo = await ingestRepository(repo);
       return res.status(201).json({ repo: indexedRepo });
     } catch (error) {
-      if (Number.isInteger(error.status) && error.status >= 400 && error.status < 500) {
+      if (error.publicMessage) {
         const failedRepo = await Repo.findOne({ _id: repo._id, userId: req.auth.sub });
-        return res.status(error.status).json({ error: error.publicMessage || 'Could not index this repository.', repo: failedRepo });
+        return res.status(error.status || 500).json({ error: error.publicMessage, repo: failedRepo });
       }
       return next(error);
     }
@@ -60,6 +61,72 @@ router.get('/', async (req, res, next) => {
   try {
     const repos = await Repo.find({ userId: req.auth.sub }).sort({ createdAt: -1 });
     return res.json({ repos });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post('/:id/search', async (req, res, next) => {
+  try {
+    if (!isValidRepoId(req.params.id)) return res.status(404).json({ error: 'Repository not found' });
+    const repo = await Repo.findOne({ _id: req.params.id, userId: req.auth.sub });
+    if (!repo) return res.status(404).json({ error: 'Repository not found' });
+    if (repo.status !== 'ready') {
+      return res.status(409).json({ error: `Repository is not ready for search (status: ${repo.status}).` });
+    }
+
+    const query = typeof req.body?.query === 'string' ? req.body.query.trim() : '';
+    const limit = req.body?.limit === undefined ? 5 : req.body.limit;
+    if (query.length < 3 || query.length > 500) {
+      return res.status(400).json({ error: 'Search query must be 3–500 characters.' });
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 10) {
+      return res.status(400).json({ error: 'Search limit must be a whole number from 1 to 10.' });
+    }
+
+    if (repo.chunkCount > 0) {
+      const hasEmbedding = await Chunk.exists({ repoId: repo._id, embedding: { $exists: true } });
+      if (!hasEmbedding) {
+        return res.status(409).json({ error: 'This repository was indexed before embeddings were added. Delete it and add it again to enable search.' });
+      }
+    }
+
+    const queryVector = await embedQuery(query);
+    let results;
+    try {
+      results = await Chunk.aggregate([
+        {
+          $vectorSearch: {
+            index: 'chunk_vector_index',
+            path: 'embedding',
+            queryVector,
+            numCandidates: 100,
+            limit,
+            filter: { repoId: repo._id }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            filePath: 1,
+            startLine: 1,
+            endLine: 1,
+            language: 1,
+            code: 1,
+            score: { $meta: 'vectorSearchScore' }
+          }
+        }
+      ]);
+    } catch (error) {
+      if (/index.*(not found|does not exist|missing)|(?:not found|missing).*index|vector search.*index|needs to be indexed as.*vector/i.test(error.message || '')) {
+        const indexError = new Error('MongoDB Atlas vector index "chunk_vector_index" is missing or not ready. Create it in the Atlas UI and try again.');
+        indexError.status = 503;
+        indexError.publicMessage = indexError.message;
+        return next(indexError);
+      }
+      return next(error);
+    }
+    return res.json({ results });
   } catch (error) {
     return next(error);
   }

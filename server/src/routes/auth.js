@@ -1,11 +1,20 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { rateLimit } from 'express-rate-limit';
 import { User } from '../models/User.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 
 const router = Router();
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('repomentor-dummy-password', 12);
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts. Try again in 15 minutes.' }
+});
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
@@ -19,11 +28,12 @@ router.get('/me', requireAuth, async (req, res, next) => {
 
 function issueToken(user) {
   return jwt.sign({ sub: user.id, email: user.email }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '1d'
+    expiresIn: process.env.JWT_EXPIRES_IN || '1d',
+    algorithm: 'HS256'
   });
 }
 
-router.post('/register', async (req, res, next) => {
+router.post('/register', authRateLimit, async (req, res, next) => {
   try {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
@@ -40,7 +50,7 @@ router.post('/register', async (req, res, next) => {
   }
 });
 
-router.post('/login', async (req, res, next) => {
+router.post('/login', authRateLimit, async (req, res, next) => {
   try {
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
@@ -48,8 +58,8 @@ router.post('/login', async (req, res, next) => {
       return res.status(400).json({ error: 'Enter a valid email and password' });
     }
     const user = await User.findOne({ email }).select('+passwordHash');
-    const passwordMatches = user && await bcrypt.compare(password, user.passwordHash);
-    if (!passwordMatches) return res.status(401).json({ error: 'Email or password is incorrect' });
+    const passwordMatches = await bcrypt.compare(password, user?.passwordHash || DUMMY_PASSWORD_HASH);
+    if (!user || !passwordMatches) return res.status(401).json({ error: 'Email or password is incorrect' });
     return res.json({ token: issueToken(user), user: { id: user.id, name: user.name, email: user.email } });
   } catch (error) {
     return next(error);

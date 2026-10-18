@@ -8,6 +8,7 @@ import { Message } from '../models/Message.js';
 import { ingestRepository } from '../services/ingestion.js';
 import { embedQuery } from '../services/embeddings.js';
 import { generateAnswer } from '../services/llm.js';
+import { isMissingVectorIndex, retrieveChunks } from '../services/retrieval.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -40,10 +41,6 @@ const askLimiter = rateLimit({
   message: { error: 'Question limit reached. Try again in an hour.' }
 });
 
-function missingVectorIndex(error) {
-  return /index.*(not found|does not exist|missing)|(?:not found|missing).*index|vector search.*index|needs to be indexed as.*vector/i.test(error.message || '');
-}
-
 function getMinimumRetrievalScore() {
   const configuredScore = process.env.RETRIEVAL_MIN_SCORE;
   if (configuredScore === undefined || configuredScore.trim() === '') return 0.5;
@@ -69,32 +66,6 @@ function buildSnippetPrompt(sources) {
     const fence = sourceFence(code);
     return `[${source.n}] ${source.filePath}:${source.startLine}-${source.endLine}\n${fence}\n${code}\n${fence}`;
   }).join('\n\n');
-}
-
-async function retrieveChunks(repoId, queryVector, limit) {
-  return Chunk.aggregate([
-    {
-      $vectorSearch: {
-        index: 'chunk_vector_index',
-        path: 'embedding',
-        queryVector,
-        numCandidates: 100,
-        limit,
-        filter: { repoId }
-      }
-    },
-    {
-      $project: {
-        _id: 0,
-        filePath: 1,
-        startLine: 1,
-        endLine: 1,
-        language: 1,
-        code: 1,
-        score: { $meta: 'vectorSearchScore' }
-      }
-    }
-  ]);
 }
 
 function parseGitHubUrl(value) {
@@ -190,31 +161,9 @@ router.post('/:id/search', searchLimiter, async (req, res, next) => {
     const queryVector = await embedQuery(query);
     let results;
     try {
-      results = await Chunk.aggregate([
-        {
-          $vectorSearch: {
-            index: 'chunk_vector_index',
-            path: 'embedding',
-            queryVector,
-            numCandidates: 100,
-            limit,
-            filter: { repoId: repo._id }
-          }
-        },
-        {
-          $project: {
-            _id: 0,
-            filePath: 1,
-            startLine: 1,
-            endLine: 1,
-            language: 1,
-            code: 1,
-            score: { $meta: 'vectorSearchScore' }
-          }
-        }
-      ]);
+      results = await retrieveChunks(repo._id, queryVector, limit);
     } catch (error) {
-      if (/index.*(not found|does not exist|missing)|(?:not found|missing).*index|vector search.*index|needs to be indexed as.*vector/i.test(error.message || '')) {
+      if (isMissingVectorIndex(error)) {
         const indexError = new Error('MongoDB Atlas vector index "chunk_vector_index" is missing or not ready. Create it in the Atlas UI and try again.');
         indexError.status = 503;
         indexError.publicMessage = indexError.message;

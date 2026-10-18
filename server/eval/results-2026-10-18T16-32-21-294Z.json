@@ -1,0 +1,513 @@
+{
+  "repo": {
+    "id": "6ad4bd1eacff050cdc750fc5",
+    "name": "Adarshsharma10/RepoMentor"
+  },
+  "topK": 10,
+  "hitRate": 0.9,
+  "hits": 9,
+  "total": 10,
+  "averageFirstHitRank": 1,
+  "results": [
+    {
+      "question": "where is the password hashed",
+      "expectedFiles": [
+        "server/src/routes/auth.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8322917222976685
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8210837841033936
+        },
+        {
+          "filePath": "server/src/models/User.js",
+          "score": 0.8183884620666504
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7979753017425537
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7965487837791443
+        },
+        {
+          "filePath": "server/src/middleware/requireAuth.js",
+          "score": 0.7953288555145264
+        },
+        {
+          "filePath": "README.md",
+          "score": 0.7931705117225647
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7930871248245239
+        },
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.7928957343101501
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7906217575073242
+        }
+      ]
+    },
+    {
+      "question": "how is the jwt token checked",
+      "expectedFiles": [
+        "server/src/middleware/requireAuth.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/middleware/requireAuth.js",
+          "score": 0.8538184762001038
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8148694634437561
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8138589859008789
+        },
+        {
+          "filePath": "server/package.json",
+          "score": 0.7981029748916626
+        },
+        {
+          "filePath": "README.md",
+          "score": 0.795210599899292
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.7944484949111938
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.792617917060852
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7924503087997437
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.7921711802482605
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7905986309051514
+        }
+      ]
+    },
+    {
+      "question": "how is mongodb connected",
+      "expectedFiles": [
+        "server/src/config/database.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/config/database.js",
+          "score": 0.8587809205055237
+        },
+        {
+          "filePath": "server/src/index.js",
+          "score": 0.8202514052391052
+        },
+        {
+          "filePath": "server/src/app.js",
+          "score": 0.8143436908721924
+        },
+        {
+          "filePath": "README.md",
+          "score": 0.8109874725341797
+        },
+        {
+          "filePath": "server/src/models/Repo.js",
+          "score": 0.8060194849967957
+        },
+        {
+          "filePath": "server/src/models/Chunk.js",
+          "score": 0.8051077127456665
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8034200668334961
+        },
+        {
+          "filePath": "server/src/models/User.js",
+          "score": 0.7972204089164734
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.7971317172050476
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.7964136600494385
+        }
+      ]
+    },
+    {
+      "question": "where are errors turned into responses",
+      "expectedFiles": [
+        "server/src/middleware/errorHandler.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/middleware/errorHandler.js",
+          "score": 0.8378757238388062
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8153507709503174
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.809651255607605
+        },
+        {
+          "filePath": "server/src/app.js",
+          "score": 0.8077089786529541
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.8072288036346436
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8064153790473938
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8052629232406616
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.804757833480835
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8029375076293945
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8018107414245605
+        }
+      ]
+    },
+    {
+      "question": "how is the user schema defined",
+      "expectedFiles": [
+        "server/src/models/User.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/models/User.js",
+          "score": 0.8572055697441101
+        },
+        {
+          "filePath": "server/src/models/Repo.js",
+          "score": 0.8301252722740173
+        },
+        {
+          "filePath": "server/src/models/Chunk.js",
+          "score": 0.8187503814697266
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8115131855010986
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8089218139648438
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7953161597251892
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7918340563774109
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7906602025032043
+        },
+        {
+          "filePath": "server/package.json",
+          "score": 0.7893825173377991
+        },
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.7890886068344116
+        }
+      ]
+    },
+    {
+      "question": "how are files split into chunks",
+      "expectedFiles": [
+        "server/src/services/ingestion.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.8368067741394043
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.832362174987793
+        },
+        {
+          "filePath": "server/src/models/Chunk.js",
+          "score": 0.8314182162284851
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.8271186947822571
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.8202516436576843
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.7936216592788696
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.7923554182052612
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.7916056513786316
+        },
+        {
+          "filePath": "server/src/models/Repo.js",
+          "score": 0.7885441780090332
+        },
+        {
+          "filePath": "client/index.html",
+          "score": 0.784263014793396
+        }
+      ]
+    },
+    {
+      "question": "how are embeddings generated",
+      "expectedFiles": [
+        "server/src/services/embeddings.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8612990379333496
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8540818691253662
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8529900312423706
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8236178159713745
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.8182660937309265
+        },
+        {
+          "filePath": "server/src/models/Chunk.js",
+          "score": 0.8150763511657715
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.8120793104171753
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8056573867797852
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.7943218946456909
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.7920367121696472
+        }
+      ]
+    },
+    {
+      "question": "where is the vector search query",
+      "expectedFiles": [
+        "server/src/routes/repos.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8543357849121094
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8396773338317871
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.825082540512085
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8090636730194092
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8066918849945068
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8056553602218628
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.804214596748352
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8030799031257629
+        },
+        {
+          "filePath": "server/src/models/Chunk.js",
+          "score": 0.796469509601593
+        },
+        {
+          "filePath": "client/src/repo.css",
+          "score": 0.7917966842651367
+        }
+      ]
+    },
+    {
+      "question": "how is the language model called",
+      "expectedFiles": [
+        "server/src/services/llm.js"
+      ],
+      "status": "MISS",
+      "firstHitRank": null,
+      "topResults": [
+        {
+          "filePath": "server/src/models/Chunk.js",
+          "score": 0.8112486600875854
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8006433248519897
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.797838568687439
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.7970609664916992
+        },
+        {
+          "filePath": "server/package.json",
+          "score": 0.7925028800964355
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.7884617447853088
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.7871233224868774
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.7871041297912598
+        },
+        {
+          "filePath": "README.md",
+          "score": 0.7859017848968506
+        },
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.7845104336738586
+        }
+      ]
+    },
+    {
+      "question": "how is login rate limited",
+      "expectedFiles": [
+        "server/src/routes/auth.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.824222981929779
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8119984269142151
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.7897007465362549
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.7880398035049438
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.786896288394928
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7857226133346558
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.7848728895187378
+        },
+        {
+          "filePath": "README.md",
+          "score": 0.7841487526893616
+        },
+        {
+          "filePath": "server/package.json",
+          "score": 0.7839482426643372
+        },
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.7823483347892761
+        }
+      ]
+    }
+  ]
+}

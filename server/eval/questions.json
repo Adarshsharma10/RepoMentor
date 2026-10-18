@@ -1,0 +1,31 @@
+{
+  "questions": [
+    { "q": "where is the password hashed", "expect": ["server/src/routes/auth.js"] },
+    { "q": "how is the jwt token checked", "expect": ["server/src/middleware/requireAuth.js"] },
+    { "q": "how is mongodb connected", "expect": ["server/src/config/database.js"] },
+    { "q": "where are errors turned into responses", "expect": ["server/src/middleware/errorHandler.js"] },
+    { "q": "how is the user schema defined", "expect": ["server/src/models/User.js"] },
+    { "q": "how are files split into chunks", "expect": ["server/src/services/ingestion.js"] },
+    { "q": "how are embeddings generated", "expect": ["server/src/services/embeddings.js"] },
+    { "q": "where is the vector search query", "expect": ["server/src/routes/repos.js"] },
+    { "q": "how is the language model called", "expect": ["server/src/services/llm.js"] },
+    { "q": "how is login rate limited", "expect": ["server/src/routes/auth.js"] },
+    { "q": "What happens after I send a question, from the text I type to the code results?", "expect": ["client/src/App.jsx", "server/src/routes/repos.js", "server/src/services/embeddings.js", "server/src/services/retrieval.js"] },
+    { "q": "After I sign in, where does the browser keep track of who I am?", "expect": ["client/src/components/AuthScreen.jsx", "client/src/App.jsx"] },
+    { "q": "Which repository files are left out when code is imported?", "expect": ["server/src/services/ingestion.js"] },
+    { "q": "How are failures from the text generation and vector services shown safely?", "expect": ["server/src/services/llm.js", "server/src/services/embeddings.js", "server/src/middleware/errorHandler.js"] },
+    { "q": "How does the app choose matching code before writing an answer?", "expect": ["server/src/routes/repos.js", "server/src/services/retrieval.js"] },
+    { "q": "How does the app keep instructions inside repository files from controlling an answer?", "expect": ["server/src/routes/repos.js"] },
+    { "q": "How can I switch the sign-in form between creating an account and logging in?", "expect": ["client/src/components/AuthScreen.jsx"] },
+    { "q": "How does the repository workspace rearrange itself for a phone screen?", "expect": ["client/src/styles.css", "client/src/App.jsx"] },
+    { "q": "When I reopen a repository, how does the app bring back my earlier questions?", "expect": ["client/src/App.jsx", "server/src/routes/repos.js", "server/src/models/Message.js"] },
+    { "q": "How does the app switch between different AI providers for answers?", "expect": ["server/src/services/llm.js"] }
+  ],
+  "negatives": [
+    "What is the currency used in France?",
+    "How tall is Mount Everest?",
+    "What is the capital city of Japan?",
+    "How many planets are in the solar system?",
+    "What is the boiling point of water at sea level?"
+  ]
+}

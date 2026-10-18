@@ -1,222 +1,411 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import AuthScreen from './components/AuthScreen.jsx';
+import CodeViewer from './components/CodeViewer.jsx';
+import MarkdownAnswer from './components/MarkdownAnswer.jsx';
+import { apiRequest, userFacingError } from './api.js';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const SUGGESTED_QUESTIONS = [
+  'Where is authentication handled?',
+  'How is the database connected?',
+  'What does this project do?'
+];
 
-async function apiRequest(path, options = {}) {
-  const token = localStorage.getItem('repomentor-token');
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers
-    }
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(data.error || 'Something went wrong. Please try again.');
-    error.data = data;
-    throw error;
-  }
-  return data;
+function BrandMark() {
+  return <span className="brand-mark" aria-hidden="true">R</span>;
 }
 
-function Mark() {
-  return <span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="12" fill="currentColor"/><path d="M14 13.5 8 20l6 6.5M26 13.5 32 20l-6 6.5M23 11l-6 18" stroke="#F8FAFC" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg></span>;
+function StatusIcon({ status }) {
+  if (status === 'ready') return <svg className="status-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" /><path d="m6.5 10 2.2 2.2 4.8-5" /></svg>;
+  if (status === 'failed') return <svg className="status-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" /><path d="m7.3 7.3 5.4 5.4m0-5.4-5.4 5.4" /></svg>;
+  return <svg className="status-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" /><path d="M10 5.5V10l3 2" /></svg>;
+}
+
+function statusText(repo) {
+  if (repo.status === 'ready') return 'Ready';
+  if (repo.status === 'indexing') return 'Indexing';
+  if (repo.status === 'failed') return 'Failed';
+  return 'Waiting to index';
+}
+
+function StatusLabel({ repo }) {
+  return <span className={`status-label status-${repo.status}`}><StatusIcon status={repo.status} />{statusText(repo)}</span>;
+}
+
+function Modal({ title, children, onClose, labelledBy }) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return undefined;
+    const focusable = () => [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
+    focusable()[0]?.focus();
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') closeRef.current();
+      if (event.key === 'Tab') {
+        const items = focusable();
+        if (!items.length) return;
+        const first = items[0];
+        const last = items.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    dialog.addEventListener('keydown', handleKeyDown);
+    return () => dialog.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby={labelledBy} ref={dialogRef} tabIndex={-1}>
+      <h2 id={labelledBy}>{title}</h2>
+      {children}
+    </section>
+  </div>;
+}
+
+function getStoredUser() {
+  try { return JSON.parse(localStorage.getItem('repomentor-user') || 'null'); } catch { return null; }
+}
+
+function createSourceKey(source) {
+  return `${source.filePath}:${source.startLine}-${source.endLine}`;
+}
+
+function SourceButton({ source, cited = false, onSelect }) {
+  return <button className={`source-row${cited ? ' source-row-cited' : ''}`} type="button" onClick={() => onSelect(source)}>
+    <span className="source-number">[{source.n}]</span>
+    <span className="source-location">{source.filePath}:{source.startLine}-{source.endLine}</span>
+    {cited && <span className="source-cited-label">Cited</span>}
+  </button>;
+}
+
+function AnswerCard({ message, onSelectSource, selectedSource }) {
+  const sources = message.sources || [];
+  const sourceNumbers = new Set(sources.map(source => source.n));
+  const citations = new Set(
+  [...message.answer.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)]
+    .flatMap((match) => match[1].split(',').map((value) => Number(value.trim())))
+    .filter((number) => sourceNumbers.has(number)),
+);
+  const citedSources = sources.filter(source => citations.has(source.n));
+  const otherSources = sources.filter(source => !citations.has(source.n));
+  const messageKey = message._id || `${message.createdAt}-${message.question}`;
+  const selectSource = source => onSelectSource(source, messageKey);
+
+  return <article className="answer-card">
+    <div className="message-question"><span className="message-label">You asked</span><p>{message.question}</p></div>
+    <div className="answer-content" aria-live="polite">
+      <span className="message-label">RepoMentor</span>
+      <MarkdownAnswer answer={message.answer} sources={sources} onSelectSource={selectSource} selectedSourceNumber={selectedSource?.messageKey === messageKey ? selectedSource.source.n : null} />
+    </div>
+    {citedSources.length === 0
+      ? <p className="conversation-empty">No relevant code found for this question.</p>
+      : <section className="answer-sources" aria-label="Sources">
+        <h3>Sources</h3>
+        {citedSources.map(source => <SourceButton key={source.n} source={source} cited onSelect={selectSource} />)}
+        {otherSources.length > 0 && <details className="other-sources">
+          <summary>Other retrieved code ({otherSources.length})</summary>
+          {otherSources.map(source => <SourceButton key={source.n} source={source} onSelect={selectSource} />)}
+        </details>}
+      </section>}
+  </article>;
 }
 
 export default function App() {
-  const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [user, setUser] = useState(getStoredUser);
   const [repos, setRepos] = useState([]);
+  const [selectedRepoId, setSelectedRepoId] = useState('');
   const [reposBusy, setReposBusy] = useState(false);
   const [reposError, setReposError] = useState('');
+  const [repoMessage, setRepoMessage] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState('');
   const [addingRepo, setAddingRepo] = useState(false);
-  const [repoMessage, setRepoMessage] = useState('');
-  const [searchQueries, setSearchQueries] = useState({});
-  const [searchResults, setSearchResults] = useState({});
-  const [searchBusy, setSearchBusy] = useState({});
-  const [searchErrors, setSearchErrors] = useState({});
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('repomentor-user') || 'null'); } catch { return null; }
-  });
+  const [addError, setAddError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deletingRepo, setDeletingRepo] = useState(false);
+  const [activeTab, setActiveTab] = useState('ask');
+  const [askQuestion, setAskQuestion] = useState('');
+  const [askBusy, setAskBusy] = useState(false);
+  const [askError, setAskError] = useState('');
+  const [askMessages, setAskMessages] = useState({});
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedSource, setSelectedSource] = useState(null);
+  const [mobileViewerOpen, setMobileViewerOpen] = useState(false);
+
+  const selectedRepo = repos.find(repo => repo._id === selectedRepoId) || null;
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) return undefined;
+    let current = true;
     setReposBusy(true);
     setReposError('');
     apiRequest('/api/repos')
-      .then(data => setRepos(data.repos))
-      .catch(requestError => setReposError(requestError.message))
-      .finally(() => setReposBusy(false));
+      .then(data => {
+        if (!current) return;
+        setRepos(data.repos);
+        setSelectedRepoId(existingId => existingId || data.repos[0]?._id || '');
+      })
+      .catch(error => { if (current) setReposError(userFacingError(error)); })
+      .finally(() => { if (current) setReposBusy(false); });
+    return () => { current = false; };
   }, [user]);
 
-  function changeMode(nextMode) {
-    setMode(nextMode);
-    setError('');
-  }
-
-  async function submit(event) {
-    event.preventDefault();
-    setError('');
-    setBusy(true);
-    try {
-      const response = await fetch(`${API_URL}/api/auth/${mode}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
-      localStorage.setItem('repomentor-token', data.token);
-      localStorage.setItem('repomentor-user', JSON.stringify(data.user));
-      setUser(data.user);
-    } catch (requestError) {
-      setError(requestError.message === 'Failed to fetch' ? 'Could not reach the server. Check that the API is running.' : requestError.message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  useEffect(() => {
+    if (!selectedRepo || selectedRepo.status !== 'ready' || askMessages[selectedRepo._id] !== undefined) return undefined;
+    let current = true;
+    setHistoryBusy(true);
+    setHistoryError('');
+    apiRequest(`/api/repos/${selectedRepo._id}/messages`)
+      .then(data => { if (current) setAskMessages(messages => ({ ...messages, [selectedRepo._id]: data.messages })); })
+      .catch(error => { if (current) setHistoryError(userFacingError(error)); })
+      .finally(() => { if (current) setHistoryBusy(false); });
+    return () => { current = false; };
+  }, [selectedRepo?._id, selectedRepo?.status, askMessages]);
 
   function logout() {
     localStorage.removeItem('repomentor-token');
     localStorage.removeItem('repomentor-user');
     setUser(null);
+    setRepos([]);
+    setSelectedRepoId('');
+    setAskMessages({});
+  }
+
+  function selectRepository(repo) {
+    setSelectedRepoId(repo._id);
+    setActiveTab('ask');
+    setAskQuestion('');
+    setAskError('');
+    setSearchError('');
+    setHistoryError('');
+    setHistoryBusy(false);
+    setSearchResults([]);
+    setSelectedSource(null);
+    setMobileViewerOpen(false);
   }
 
   async function addRepository(event) {
     event.preventDefault();
     setAddingRepo(true);
-    setReposError('');
-    setRepoMessage('Indexing repository… this can take a little while.');
+    setAddError('');
+    setRepoMessage('Adding and indexing repository…');
     try {
-      const data = await apiRequest('/api/repos', {
-        method: 'POST',
-        body: JSON.stringify({ url: repoUrl })
-      });
-      setRepos(current => [data.repo, ...current]);
+      const data = await apiRequest('/api/repos', { method: 'POST', body: JSON.stringify({ url: repoUrl }) });
+      setRepos(current => [data.repo, ...current.filter(repo => repo._id !== data.repo._id)]);
+      setSelectedRepoId(data.repo._id);
+      setHistoryBusy(false);
+      setActiveTab('ask');
       setRepoUrl('');
-      setRepoMessage(`Indexed ${data.repo.owner}/${data.repo.name}.`);
-    } catch (requestError) {
-      setReposError(requestError.message);
+      setAddOpen(false);
+      setRepoMessage(`${data.repo.owner}/${data.repo.name} is ready.`);
+    } catch (error) {
+      setAddError(userFacingError(error));
       setRepoMessage('');
-      if (requestError.data?.repo) {
-        setRepos(current => [requestError.data.repo, ...current.filter(repo => repo._id !== requestError.data.repo._id)]);
+      if (error.data?.repo) {
+        setRepos(current => [error.data.repo, ...current.filter(repo => repo._id !== error.data.repo._id)]);
+        setSelectedRepoId(error.data.repo._id);
+        setHistoryBusy(false);
+        setAddOpen(false);
       }
     } finally {
       setAddingRepo(false);
     }
   }
 
-  async function deleteRepository(repo) {
-    if (!window.confirm(`Delete ${repo.owner}/${repo.name} and its saved chunks?`)) return;
+  async function deleteRepository() {
+    if (!deleteTarget) return;
+    setDeletingRepo(true);
     setReposError('');
     try {
-      await apiRequest(`/api/repos/${repo._id}`, { method: 'DELETE' });
-      setRepos(current => current.filter(item => item._id !== repo._id));
-      setRepoMessage(`Deleted ${repo.owner}/${repo.name}.`);
-    } catch (requestError) {
-      setReposError(requestError.message);
-    }
-  }
-
-  async function searchRepository(event, repo) {
-    event.preventDefault();
-    const query = (searchQueries[repo._id] || '').trim();
-    setSearchBusy(current => ({ ...current, [repo._id]: true }));
-    setSearchErrors(current => ({ ...current, [repo._id]: '' }));
-    setSearchResults(current => ({ ...current, [repo._id]: [] }));
-    try {
-      const data = await apiRequest(`/api/repos/${repo._id}/search`, {
-        method: 'POST',
-        body: JSON.stringify({ query, limit: 5 })
+      await apiRequest(`/api/repos/${deleteTarget._id}`, { method: 'DELETE' });
+      setRepos(current => current.filter(repo => repo._id !== deleteTarget._id));
+      setAskMessages(current => {
+        const next = { ...current };
+        delete next[deleteTarget._id];
+        return next;
       });
-      setSearchResults(current => ({ ...current, [repo._id]: data.results }));
-    } catch (requestError) {
-      setSearchErrors(current => ({ ...current, [repo._id]: requestError.message }));
+      if (selectedRepoId === deleteTarget._id) {
+        const nextRepo = repos.find(repo => repo._id !== deleteTarget._id);
+        setSelectedRepoId(nextRepo?._id || '');
+      }
+      setRepoMessage(`${deleteTarget.owner}/${deleteTarget.name} was deleted.`);
+      setSelectedSource(null);
+      setMobileViewerOpen(false);
+      setDeleteTarget(null);
+    } catch (error) {
+      setReposError(userFacingError(error));
     } finally {
-      setSearchBusy(current => ({ ...current, [repo._id]: false }));
+      setDeletingRepo(false);
     }
   }
 
-  return <main className="page-shell">
-    <header className="topbar"><a className="brand" href="#home"><Mark /><span>Repo<span className="brand-light">Mentor</span></span></a><span className="top-note">Your codebase, understood.</span></header>
-    {user ? <section className="repo-workspace">
-      <div className="workspace-heading">
-        <div><div className="card-kicker">YOUR WORKSPACE</div><h1>Your repositories</h1><p>Add a GitHub repository to save its supported source files as line-numbered chunks. Without a GitHub token, only public repositories are available.</p></div>
-        <div className="workspace-user"><span>Signed in as <strong>{user.name}</strong></span><button className="text-button" onClick={logout}>Sign out</button></div>
-      </div>
-      <div className="repo-add-card">
-        <div><h2>Add repository</h2><p>Use a GitHub URL such as <code>https://github.com/owner/repo</code>.</p></div>
-        <form className="repo-form" onSubmit={addRepository}>
-          <label className="field"><span>GitHub repository URL</span><input type="text" inputMode="url" placeholder="https://github.com/owner/repo" value={repoUrl} onChange={event => setRepoUrl(event.target.value)} required /></label>
-          <button className="submit-button" type="submit" disabled={addingRepo}>{addingRepo ? 'Indexing…' : 'Add repository'}<span>→</span></button>
-        </form>
-      </div>
-      {repoMessage && <p className="repo-message" role="status">{repoMessage}</p>}
-      {reposError && <p className="error-message repo-error" role="alert">{reposError}</p>}
-      <div className="repo-list-heading"><h2>My repositories</h2><span>{repos.length} {repos.length === 1 ? 'repository' : 'repositories'}</span></div>
-      {reposBusy ? <div className="repo-empty">Loading your repositories…</div> : repos.length === 0 ? <div className="repo-empty">No repositories yet. Add one above to get started.</div> : <div className="repo-list">
-        {repos.map(repo => <article className="repo-item" key={repo._id}>
-          <div className="repo-main"><a href={repo.url} target="_blank" rel="noreferrer">{repo.owner}/{repo.name} ↗</a><span className={`status-badge status-${repo.status}`}>{repo.status}</span>{repo.errorMessage && <small className="repo-item-error">{repo.errorMessage}</small>}
-            {repo.status === 'ready' && <div className="repo-search">
-              <form className="repo-search-form" onSubmit={event => searchRepository(event, repo)}>
-                <label className="field"><span>Search this repo</span><input type="text" minLength={3} maxLength={500} placeholder="What does this code do?" value={searchQueries[repo._id] || ''} onChange={event => setSearchQueries(current => ({ ...current, [repo._id]: event.target.value }))} required /></label>
-                <button className="text-button" type="submit" disabled={searchBusy[repo._id]}>{searchBusy[repo._id] ? 'Searching…' : 'Search'}</button>
-              </form>
-              {searchErrors[repo._id] && <p className="error-message repo-error" role="alert">{searchErrors[repo._id]}</p>}
-              {searchResults[repo._id]?.length > 0 && <div className="search-results">
-                {searchResults[repo._id].map(result => <article className="search-result" key={`${result.filePath}:${result.startLine}`}>
-                  <div className="search-result-heading"><strong>{result.filePath}:{result.startLine}-{result.endLine}</strong><span>score {result.score.toFixed(3)}</span></div>
-                  <pre><code>{result.code}</code></pre>
-                </article>)}
-              </div>}
-              {searchResults[repo._id]?.length === 0 && !searchBusy[repo._id] && !searchErrors[repo._id] && <p className="no-search-results">No matching chunks found.</p>}
-            </div>}
-          </div>
-          <div className="repo-counts"><span><strong>{repo.fileCount}</strong> files</span><span><strong>{repo.chunkCount}</strong> chunks</span></div>
-          <button className="delete-button" onClick={() => deleteRepository(repo)} aria-label={`Delete ${repo.owner}/${repo.name}`}>Delete</button>
-        </article>)}
-      </div>}
-    </section> : <section className="hero">
-      <div className="intro">
-        <div className="eyebrow"><span className="eyebrow-dot" />A clearer way to explore code</div>
-        <h1>Meet your codebase<br /><span>where it is.</span></h1>
-        <p className="intro-copy">Ask questions about your repositories and get answers grounded in the code, with citations you can follow.</p>
-        <div className="feature-list">
-          <div className="feature"><span className="feature-icon">⌘</span><span><strong>Context, not guesswork</strong><small>Answers connected to your source code</small></span></div>
-          <div className="feature"><span className="feature-icon">↗</span><span><strong>Every answer has a trail</strong><small>Jump straight to the relevant file and line</small></span></div>
-        </div>
-        <div className="code-note"><span className="code-dots"><i /><i /><i /></span><span><span className="code-muted">const answer =</span> <span className="code-green">yourCodebase</span><span className="code-muted">.explain();</span></span><span className="code-cursor" /></div>
-      </div>
-
-      <div className="auth-wrap">
-        <div className="auth-card">
-          <>
-            <div className="card-kicker">{mode === 'login' ? 'WELCOME BACK' : 'GET STARTED'}</div>
-            <h2>{mode === 'login' ? 'Sign in to RepoMentor' : 'Create your account'}</h2>
-            <p className="form-subtitle">{mode === 'login' ? 'Pick up where you left off in your codebase.' : 'Set up your workspace in just a moment.'}</p>
-            <div className="mode-switch" role="tablist" aria-label="Account action">
-              <button className={mode === 'login' ? 'active' : ''} onClick={() => changeMode('login')} role="tab" aria-selected={mode === 'login'}>Sign in</button>
-              <button className={mode === 'register' ? 'active' : ''} onClick={() => changeMode('register')} role="tab" aria-selected={mode === 'register'}>Create account</button>
-            </div>
-            <form onSubmit={submit}>
-              {mode === 'register' && <label className="field"><span>Your name</span><input autoComplete="name" placeholder="Alex Morgan" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} required minLength={2} maxLength={80} /></label>}
-              <label className="field"><span>Email address</span><input type="email" autoComplete="email" placeholder="you@company.com" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} required maxLength={254} /></label>
-              <label className="field"><span>Password</span><input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="At least 8 characters" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} required minLength={8} maxLength={128} /></label>
-              {error && <p className="error-message" role="alert">{error}</p>}
-              <button className="submit-button" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}<span>→</span></button>
-            </form>
-            <p className="secure-note"><span>◈</span> Your credentials are encrypted and secure.</p>
-          </>
-        </div>
-        <p className="below-card">By continuing, you agree to our <a href="#terms">Terms</a> and <a href="#privacy">Privacy Policy</a>.</p>
-      </div>
-    </section>
+  async function askRepository(event) {
+    event.preventDefault();
+    if (!selectedRepo) return;
+    const question = askQuestion.trim();
+    setAskBusy(true);
+    setAskError('');
+    try {
+      const data = await apiRequest(`/api/repos/${selectedRepo._id}/ask`, {
+        method: 'POST',
+        body: JSON.stringify({ question })
+      });
+      const message = { question, answer: data.answer, sources: data.sources, createdAt: new Date().toISOString() };
+      setAskMessages(current => ({ ...current, [selectedRepo._id]: [...(current[selectedRepo._id] || []), message] }));
+      setAskQuestion('');
+    } catch (error) {
+      setAskError(userFacingError(error));
+    } finally {
+      setAskBusy(false);
     }
-    <footer><span>© 2026 RepoMentor</span><span>Built for the curious engineer.</span></footer>
-  </main>;
+  }
+
+  async function searchRepository(event) {
+    event.preventDefault();
+    if (!selectedRepo) return;
+    setSearchBusy(true);
+    setSearchError('');
+    setSearchResults([]);
+    try {
+      const data = await apiRequest(`/api/repos/${selectedRepo._id}/search`, {
+        method: 'POST',
+        body: JSON.stringify({ query: searchQuery.trim(), limit: 5 })
+      });
+      setSearchResults(data.results);
+    } catch (error) {
+      setSearchError(userFacingError(error));
+    } finally {
+      setSearchBusy(false);
+    }
+  }
+
+  function openSource(source, messageKey = 'search') {
+    setSelectedSource({ source, messageKey });
+    setMobileViewerOpen(true);
+  }
+
+  useEffect(() => {
+    if (!selectedSource) return undefined;
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') {
+        setSelectedSource(null);
+        setMobileViewerOpen(false);
+      }
+    }
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [selectedSource]);
+
+  if (!user) return <AuthScreen onAuthenticated={setUser} />;
+
+  const messages = selectedRepo ? askMessages[selectedRepo._id] || [] : [];
+
+  return <div className="app-shell">
+    <aside className="sidebar" aria-label="Repository navigation">
+      <a className="brand" href="#home"><BrandMark /><span>RepoMentor</span></a>
+      <div className="sidebar-heading"><h2>Repositories</h2><span className="repo-total">{repos.length}</span></div>
+      <button className="button button-secondary add-repository-button" type="button" onClick={() => { setAddError(''); setAddOpen(true); }}><span aria-hidden="true">+</span> Add repository</button>
+      <nav className="repo-navigation" aria-label="Your repositories">
+        {reposBusy && <p className="sidebar-message" role="status">Loading repositories…</p>}
+        {repos.map(repo => <button className={`repo-nav-item${selectedRepoId === repo._id ? ' selected' : ''}`} type="button" key={repo._id} onClick={() => selectRepository(repo)} aria-current={selectedRepoId === repo._id ? 'page' : undefined}>
+          <span className="repo-nav-name">{repo.owner}/{repo.name}</span><StatusLabel repo={repo} />
+        </button>)}
+        {!reposBusy && repos.length === 0 && <p className="sidebar-message">No repositories added yet.</p>}
+      </nav>
+      <div className="sidebar-account"><span className="avatar" aria-hidden="true">{user.name?.slice(0, 1).toUpperCase() || 'U'}</span><span className="account-name">{user.name}</span><button className="button button-quiet sign-out-button" type="button" onClick={logout}>Sign out</button></div>
+    </aside>
+
+    <main className="main-area">
+      {reposError && <p className="inline-error" role="alert">{reposError}</p>}
+      {repoMessage && <p className="inline-status" role="status">{repoMessage}</p>}
+      {!selectedRepo ? <section className="empty-workspace">
+        <div className="empty-icon" aria-hidden="true">⌘</div>
+        <h1>Workspace</h1>
+        <p>Add a public GitHub repository to start asking questions about its code.</p>
+        <button className="button button-primary" type="button" onClick={() => { setAddError(''); setAddOpen(true); }}>Add repository</button>
+      </section> : <>
+        <header className="repo-header">
+          <div className="repo-heading-copy">
+            <p className="breadcrumb">Your repositories <span aria-hidden="true">/</span> {selectedRepo.owner}</p>
+            <h1>{selectedRepo.name}</h1>
+            <a className="repo-url" href={selectedRepo.url} target="_blank" rel="noreferrer">{selectedRepo.url}</a>
+          </div>
+          <div className="repo-header-actions"><StatusLabel repo={selectedRepo} /><button className="button button-danger-quiet" type="button" onClick={() => setDeleteTarget(selectedRepo)}>Delete repository</button></div>
+        </header>
+
+        {selectedRepo.status === 'failed' && <section className="status-explanation" role="status"><StatusIcon status="failed" /><div><h2>Indexing failed</h2><p>{selectedRepo.errorMessage || 'The repository could not be indexed.'} Delete this repository and add it again after fixing the issue.</p></div></section>}
+        {(selectedRepo.status === 'indexing' || selectedRepo.status === 'pending') && <section className="status-explanation" role="status"><StatusIcon status={selectedRepo.status} /><div><h2>{selectedRepo.status === 'indexing' ? 'Indexing repository' : 'Waiting to index'}</h2><p>RepoMentor is preparing the repository code. You can ask questions when indexing is ready.</p></div></section>}
+
+        {selectedRepo.status === 'ready' && <>
+          <div className="workspace-tabs" role="tablist" aria-label="Repository tools">
+            <button className={activeTab === 'ask' ? 'active' : ''} type="button" role="tab" aria-selected={activeTab === 'ask'} onClick={() => setActiveTab('ask')}>Ask</button>
+            <button className={activeTab === 'search' ? 'active' : ''} type="button" role="tab" aria-selected={activeTab === 'search'} onClick={() => setActiveTab('search')}>Search</button>
+          </div>
+          <div className="workspace-grid">
+            <section className="conversation-panel" aria-label={activeTab === 'ask' ? 'Ask about this repository' : 'Search this repository'}>
+              {activeTab === 'ask' ? <>
+                <div className="conversation-heading"><h2>Ask about this repository</h2><p>Answers use the indexed code and link to their sources.</p></div>
+                {historyError && <p className="inline-error" role="alert">{historyError}</p>}
+                <div className="conversation-history" aria-live="polite">
+                  {historyBusy && messages.length === 0 && <div className="answer-skeleton" role="status" aria-live="polite"><span>Loading your previous answers</span><i /><i /><i /></div>}
+                  {!historyBusy && messages.length === 0 && <p className="conversation-empty">Ask a question to see an answer grounded in this repository.</p>}
+                  {messages.map((message, index) => <AnswerCard key={message._id || `${message.createdAt}-${index}`} message={message} onSelectSource={openSource} selectedSource={selectedSource} />)}
+                  {askBusy && <div className="answer-skeleton" role="status" aria-live="polite"><span>Finding an answer in your code</span><i /><i /><i /></div>}
+                </div>
+                {messages.length === 0 && <div className="suggested-questions" aria-label="Suggested questions"><p>Try a question</p>{SUGGESTED_QUESTIONS.map(question => <button type="button" key={question} onClick={() => setAskQuestion(question)}>{question}</button>)}</div>}
+                {askError && <p className="inline-error" role="alert">{askError}</p>}
+                <form className="question-form" onSubmit={askRepository}>
+                  <label className="visually-hidden" htmlFor="question-input">Your question</label>
+                  <textarea id="question-input" rows="2" maxLength={500} minLength={3} value={askQuestion} onChange={event => setAskQuestion(event.target.value)} placeholder="Ask about the code…" disabled={askBusy} required />
+                  <button className="button button-primary question-submit" type="submit" disabled={askBusy || askQuestion.trim().length < 3}>{askBusy ? 'Thinking…' : 'Ask'}</button>
+                </form>
+              </> : <>
+                <div className="conversation-heading"><h2>Closest matches</h2><p>Search for code by describing what you need.</p></div>
+                <form className="search-form" onSubmit={searchRepository}>
+                  <label className="visually-hidden" htmlFor="search-input">Search this repository</label>
+                  <input id="search-input" type="search" minLength={3} maxLength={500} value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="What does this code do?" required />
+                  <button className="button button-primary" type="submit" disabled={searchBusy || searchQuery.trim().length < 3}>{searchBusy ? 'Searching…' : 'Search'}</button>
+                </form>
+                {searchBusy && <div className="answer-skeleton" role="status" aria-live="polite"><span>Searching indexed code</span><i /><i /><i /></div>}
+                {searchError && <p className="inline-error" role="alert">{searchError}</p>}
+                {!searchBusy && searchResults.length === 0 && !searchError && <p className="conversation-empty">Closest code matches will appear here.</p>}
+                <div className="closest-matches">{searchResults.map((result, index) => <article className="match-card" key={createSourceKey(result)}>
+                  <button className="match-location" type="button" onClick={() => openSource({ ...result, n: index + 1 })}>{result.filePath}:{result.startLine}-{result.endLine}</button>
+                  <span className="match-score" aria-label={`Similarity score ${Number(result.score).toFixed(3)}`}>{Number(result.score).toFixed(3)}</span>
+                  <pre><code>{result.code}</code></pre>
+                </article>)}</div>
+              </>}
+            </section>
+            <CodeViewer source={selectedSource?.source} mobileOpen={mobileViewerOpen} onClose={() => { setMobileViewerOpen(false); setSelectedSource(null); }} />
+          </div>
+        </>}
+      </>}
+    </main>
+
+    {addOpen && <Modal title="Add a public GitHub repository" labelledBy="add-repository-title" onClose={() => { if (!addingRepo) setAddOpen(false); }}>
+      <p className="modal-description">Add a public GitHub repository to index its source code.</p>
+      <form className="modal-form" onSubmit={addRepository}>
+        <label className="field" htmlFor="repository-url"><span>GitHub repository URL</span><input id="repository-url" type="url" inputMode="url" placeholder="https://github.com/owner/repo" value={repoUrl} onChange={event => setRepoUrl(event.target.value)} required disabled={addingRepo} /></label>
+        {addError && <p className="field-error" role="alert">{addError}</p>}
+        <div className="modal-actions"><button className="button button-secondary" type="button" onClick={() => setAddOpen(false)} disabled={addingRepo}>Cancel</button><button className="button button-primary" type="submit" disabled={addingRepo}>{addingRepo ? 'Indexing…' : 'Add repository'}</button></div>
+      </form>
+    </Modal>}
+
+    {deleteTarget && <Modal title="Delete this repository and its indexed code?" labelledBy="delete-repository-title" onClose={() => { if (!deletingRepo) setDeleteTarget(null); }}>
+      <p className="modal-description">This removes {deleteTarget.owner}/{deleteTarget.name} and its saved code from your workspace.</p>
+      <div className="modal-actions"><button className="button button-secondary" type="button" onClick={() => setDeleteTarget(null)} disabled={deletingRepo}>Cancel</button><button className="button button-danger" type="button" onClick={deleteRepository} disabled={deletingRepo}>{deletingRepo ? 'Deleting…' : 'Delete repository'}</button></div>
+    </Modal>}
+  </div>;
 }

@@ -25,6 +25,8 @@ export async function retrieveChunks(repoId, queryVector, limit = 5) {
         endLine: 1,
         language: 1,
         code: 1,
+        symbol: 1,
+        kind: 1,
         score: { $meta: 'vectorSearchScore' }
       }
     }

@@ -6,6 +6,8 @@ const sourceSchema = new mongoose.Schema({
   startLine: { type: Number, required: true, min: 1 },
   endLine: { type: Number, required: true, min: 1 },
   language: { type: String, required: true },
+  symbol: { type: String, default: '' },
+  kind: { type: String, default: '' },
   code: { type: String, required: true }
 }, { _id: false });
 

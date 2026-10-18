@@ -2,13 +2,12 @@ import { Octokit } from 'octokit';
 import { Repo } from '../models/Repo.js';
 import { Chunk } from '../models/Chunk.js';
 import { embedDocuments } from './embeddings.js';
+import { chunkFile } from './chunker.js';
 
 const MAX_FILES = 500;
 const MAX_CHUNKS = 1500;
 const MAX_FILE_BYTES = 200 * 1024;
 const MAX_EMBEDDING_TEXT_LENGTH = 4000;
-const CHUNK_LINES = 60;
-const CHUNK_OVERLAP = 10;
 const EXCLUDED_DIRECTORIES = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
 const EXCLUDED_FILES = new Set(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']);
 const TEXT_EXTENSIONS = new Map([
@@ -62,25 +61,6 @@ function isIndexableFile(file) {
   return Boolean(languageForPath(file.path));
 }
 
-function chunkFile(filePath, language, code) {
-  const lines = code.split(/\r?\n/);
-  if (lines.at(-1) === '') lines.pop();
-  const chunks = [];
-  for (let start = 0; start < lines.length;) {
-    const end = Math.min(start + CHUNK_LINES, lines.length);
-    chunks.push({
-      filePath,
-      startLine: start + 1,
-      endLine: end,
-      language,
-      code: lines.slice(start, end).join('\n')
-    });
-    if (end === lines.length) break;
-    start = end - CHUNK_OVERLAP;
-  }
-  return chunks;
-}
-
 async function mapWithConcurrency(items, concurrency, callback) {
   const results = new Array(items.length);
   let nextIndex = 0;
@@ -113,7 +93,9 @@ async function fetchAndChunkFile(octokit, owner, repo, branch, file) {
   const result = await octokit.rest.git.getBlob({ owner, repo, file_sha: file.sha });
   const code = Buffer.from(result.data.content, 'base64').toString('utf8');
   if (code.includes('\0')) return null;
-  return chunkFile(file.path, languageForPath(file.path), code);
+  const language = languageForPath(file.path);
+  const chunks = await chunkFile({ filePath: file.path, language, content: code });
+  return chunks.map(chunk => ({ ...chunk, filePath: file.path, language }));
 }
 
 export async function ingestRepository(repoDocument) {
@@ -161,7 +143,7 @@ export async function ingestRepository(repoDocument) {
     }
 
     const embeddingTexts = chunks.map(chunk =>
-      `File: ${chunk.filePath}\n${chunk.code}`.slice(0, MAX_EMBEDDING_TEXT_LENGTH)
+      `File: ${chunk.filePath}\nSymbol: ${chunk.symbol || 'file'} (${chunk.kind})\n${chunk.code}`.slice(0, MAX_EMBEDDING_TEXT_LENGTH)
     );
     const embeddings = await embedDocuments(embeddingTexts);
     chunks.forEach((chunk, index) => { chunk.embedding = embeddings[index]; });

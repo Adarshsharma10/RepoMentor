@@ -80,7 +80,7 @@ function createSourceKey(source) {
 function SourceButton({ source, cited = false, onSelect }) {
   return <button className={`source-row${cited ? ' source-row-cited' : ''}`} type="button" onClick={() => onSelect(source)}>
     <span className="source-number">[{source.n}]</span>
-    <span className="source-location">{source.filePath}:{source.startLine}-{source.endLine}</span>
+    <span className="source-location">{source.filePath}:{source.startLine}-{source.endLine}{source.symbol && <span className="source-symbol"> · {source.symbol}</span>}</span>
     {cited && <span className="source-cited-label">Cited</span>}
   </button>;
 }
@@ -382,7 +382,7 @@ export default function App() {
                 {searchError && <p className="inline-error" role="alert">{searchError}</p>}
                 {!searchBusy && searchResults.length === 0 && !searchError && <p className="conversation-empty">Closest code matches will appear here.</p>}
                 <div className="closest-matches">{searchResults.map((result, index) => <article className="match-card" key={createSourceKey(result)}>
-                  <button className="match-location" type="button" onClick={() => openSource({ ...result, n: index + 1 })}>{result.filePath}:{result.startLine}-{result.endLine}</button>
+                  <button className="match-location" type="button" onClick={() => openSource({ ...result, n: index + 1 })}>{result.filePath}:{result.startLine}-{result.endLine}{result.symbol && <span className="source-symbol"> · {result.symbol}</span>}</button>
                   <span className="match-score" aria-label={`Similarity score ${Number(result.score).toFixed(3)}`}>{Number(result.score).toFixed(3)}</span>
                   <pre><code>{result.code}</code></pre>
                 </article>)}</div>

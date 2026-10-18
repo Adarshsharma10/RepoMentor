@@ -203,7 +203,7 @@ router.post('/:id/ask', askLimiter, async (req, res, next) => {
     try {
       results = await retrieveChunks(repo._id, queryVector, 8);
     } catch (error) {
-      if (missingVectorIndex(error)) {
+      if (isMissingVectorIndex(error)) {
         const indexError = new Error('MongoDB Atlas vector index "chunk_vector_index" is missing or not ready. Create it in the Atlas UI and try again.');
         indexError.status = 503;
         indexError.publicMessage = indexError.message;
@@ -230,6 +230,8 @@ router.post('/:id/ask', askLimiter, async (req, res, next) => {
         startLine: result.startLine,
         endLine: result.endLine,
         language: result.language,
+        symbol: result.symbol,
+        kind: result.kind,
         code: result.code
       }));
       const system = [

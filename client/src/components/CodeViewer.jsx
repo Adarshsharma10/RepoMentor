@@ -29,7 +29,7 @@ export default function CodeViewer({ source, mobileOpen = false, onClose }) {
     <aside ref={viewerRef} className={`code-viewer${mobileOpen ? ' code-viewer-sheet' : ''}`} aria-label="Code viewer" role={mobileOpen ? 'dialog' : undefined} aria-modal={mobileOpen ? 'true' : undefined} aria-labelledby="code-viewer-title" tabIndex={mobileOpen ? -1 : undefined} onKeyDown={event => { if (event.key === 'Escape' && mobileOpen) onClose(); }}>
       <div className="code-viewer-header">
         <div className="code-file-info">
-          <span className="code-file-path" id="code-viewer-title">{source ? source.filePath : 'Source viewer'}</span>
+          <span className="code-file-path" id="code-viewer-title">{source ? <>{source.filePath}{source.symbol && <span className="code-symbol"> · {source.symbol}</span>}</> : 'Source viewer'}</span>
           {source && <span className="code-line-range">Lines {source.startLine}–{source.endLine}</span>}
         </div>
         <div className="code-viewer-actions">

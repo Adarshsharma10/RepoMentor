@@ -8,6 +8,8 @@ const chunkSchema = new mongoose.Schema({
   endLine: { type: Number, required: true, min: 1 },
   language: { type: String, required: true },
   code: { type: String, required: true },
+  symbol: { type: String, default: '' },
+  kind: { type: String, default: '' },
   embedding: { type: [Number], select: false }
 });
 

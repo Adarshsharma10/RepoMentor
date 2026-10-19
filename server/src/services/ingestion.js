@@ -3,6 +3,7 @@ import { Repo } from '../models/Repo.js';
 import { Chunk } from '../models/Chunk.js';
 import { embedDocuments } from './embeddings.js';
 import { chunkFile } from './chunker.js';
+import { isRepoPathIgnored, parseRepoIgnore } from './repomentorIgnore.js';
 
 const MAX_FILES = 500;
 const MAX_CHUNKS = 1500;
@@ -89,13 +90,43 @@ function translateGitHubError(error) {
   return error;
 }
 
-async function fetchAndChunkFile(octokit, owner, repo, branch, file) {
+async function fetchAndChunkFile(octokit, owner, repo, file, chunkingMode) {
   const result = await octokit.rest.git.getBlob({ owner, repo, file_sha: file.sha });
   const code = Buffer.from(result.data.content, 'base64').toString('utf8');
   if (code.includes('\0')) return null;
   const language = languageForPath(file.path);
-  const chunks = await chunkFile({ filePath: file.path, language, content: code });
+  const chunks = chunkingMode === 'lines'
+    ? lineChunks(code)
+    : await chunkFile({ filePath: file.path, language, content: code });
   return chunks.map(chunk => ({ ...chunk, filePath: file.path, language }));
+}
+
+function lineChunks(content) {
+  const lines = content.split(/\r?\n/);
+  if (lines.at(-1) === '') lines.pop();
+  const chunks = [];
+  for (let start = 0; start < lines.length;) {
+    const end = Math.min(start + 60, lines.length);
+    chunks.push({ startLine: start + 1, endLine: end, code: lines.slice(start, end).join('\n') });
+    if (end === lines.length) break;
+    start = end - 10;
+  }
+  return chunks;
+}
+
+function getChunkingMode() {
+  const mode = process.env.CHUNKING_MODE || 'ast';
+  if (mode !== 'ast' && mode !== 'lines') {
+    throw new IngestionError(500, 'CHUNKING_MODE must be either "ast" or "lines".');
+  }
+  return mode;
+}
+
+async function readIgnoreRules(octokit, owner, repo, tree) {
+  const ignoreBlob = tree.find(file => file.path === '.repomentorignore' && file.type === 'blob');
+  if (!ignoreBlob) return [];
+  const response = await octokit.rest.git.getBlob({ owner, repo, file_sha: ignoreBlob.sha });
+  return parseRepoIgnore(Buffer.from(response.data.content, 'base64').toString('utf8'));
 }
 
 export async function ingestRepository(repoDocument) {
@@ -104,6 +135,7 @@ export async function ingestRepository(repoDocument) {
   await Repo.updateOne({ _id: repoId }, { $set: { status: 'indexing', errorMessage: '' } });
 
   try {
+    const chunkingMode = getChunkingMode();
     const octokit = createOctokit();
     const repositoryResponse = await octokit.rest.repos.get({ owner: repoDocument.owner, repo: repoDocument.name });
     const defaultBranch = repositoryResponse.data.default_branch;
@@ -118,7 +150,9 @@ export async function ingestRepository(repoDocument) {
       throw new IngestionError(413, 'Repository is too large to index: GitHub truncated its file tree.');
     }
 
-    const files = treeResponse.data.tree.filter(isIndexableFile);
+    const ignoreRules = await readIgnoreRules(octokit, repoDocument.owner, repoDocument.name, treeResponse.data.tree);
+    const files = treeResponse.data.tree.filter(file => isIndexableFile(file)
+      && !isRepoPathIgnored(file.path, ignoreRules));
     if (files.length > MAX_FILES) {
       throw new IngestionError(413, `Repository is too large to index: it has more than ${MAX_FILES} supported files.`);
     }
@@ -127,7 +161,7 @@ export async function ingestRepository(repoDocument) {
     let chunkLimitError;
     const fileChunks = await mapWithConcurrency(files, 5, async file => {
       if (chunkLimitError) throw chunkLimitError;
-      const result = await fetchAndChunkFile(octokit, repoDocument.owner, repoDocument.name, defaultBranch, file);
+      const result = await fetchAndChunkFile(octokit, repoDocument.owner, repoDocument.name, file, chunkingMode);
       if (chunkLimitError) return null;
       if (result && chunkCount + result.length > MAX_CHUNKS) {
         chunkLimitError = new IngestionError(413, `Repository is too large to index: it has more than ${MAX_CHUNKS} chunks.`);
@@ -142,9 +176,12 @@ export async function ingestRepository(repoDocument) {
       throw new IngestionError(413, `Repository is too large to index: it has more than ${MAX_CHUNKS} chunks.`);
     }
 
-    const embeddingTexts = chunks.map(chunk =>
-      `File: ${chunk.filePath}\nSymbol: ${chunk.symbol || 'file'} (${chunk.kind})\n${chunk.code}`.slice(0, MAX_EMBEDDING_TEXT_LENGTH)
-    );
+    const embeddingTexts = chunks.map(chunk => {
+      const symbol = chunkingMode === 'ast' && chunk.symbol
+        ? `Symbol: ${chunk.symbol} (${chunk.kind})\n`
+        : '';
+      return `File: ${chunk.filePath}\n${symbol}${chunk.code}`.slice(0, MAX_EMBEDDING_TEXT_LENGTH);
+    });
     const embeddings = await embedDocuments(embeddingTexts);
     chunks.forEach((chunk, index) => { chunk.embedding = embeddings[index]; });
 

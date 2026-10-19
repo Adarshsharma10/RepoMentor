@@ -7,7 +7,7 @@
     { "q": "how is the user schema defined", "expect": ["server/src/models/User.js"] },
     { "q": "how are files split into chunks", "expect": ["server/src/services/ingestion.js"] },
     { "q": "how are embeddings generated", "expect": ["server/src/services/embeddings.js"] },
-    { "q": "where is the vector search query", "expect": ["server/src/routes/repos.js"] },
+    { "q": "where is the vector search query", "expect": ["server/src/services/retrieval.js", "server/src/routes/repos.js"] },
     { "q": "how is the language model called", "expect": ["server/src/services/llm.js"] },
     { "q": "how is login rate limited", "expect": ["server/src/routes/auth.js"] },
     { "q": "What happens after I send a question, from the text I type to the code results?", "expect": ["client/src/App.jsx", "server/src/routes/repos.js", "server/src/services/embeddings.js", "server/src/services/retrieval.js"] },

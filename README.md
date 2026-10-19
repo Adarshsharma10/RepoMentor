@@ -6,7 +6,7 @@ RepoMentor is an AI question-and-answer tool for GitHub repositories. It retriev
 
 - React + Vite client with account registration and sign-in.
 - Express API with JWT authentication and MongoDB-backed users.
-- Add a GitHub repository, fetch supported source files, and split them into line-numbered chunks.
+- Add a GitHub repository, skip paths listed in its root `.repomentorignore`, and split supported source files into line-numbered chunks. JavaScript, TypeScript/TSX, and Python use AST-aware chunks by default; other files use line-based chunks.
 - Embed code and questions with Gemini, then search chunks with MongoDB Atlas Vector Search.
 - Ask questions about a ready repository, see plain-text answers with clickable citations, and review the latest 20 saved questions and answers.
 - Repository ownership checks, request validation, rate limits, and safe public error messages.
@@ -33,9 +33,10 @@ RepoMentor is an AI question-and-answer tool for GitHub repositories. It retriev
    ```env
    LLM_PROVIDER=gemini
    LLM_MODEL=gemini-2.5-flash
+   CHUNKING_MODE=ast
    ```
 
-   `gemini` is currently the only supported provider. `LLM_MODEL` selects the Gemini generation model. `RETRIEVAL_MIN_SCORE` defaults to `0.5`; adjust it if development logs show the relevant code is frequently rejected or unrelated code is accepted. `ASK_RATE_LIMIT_PER_HOUR` defaults to `20` questions per user per hour.
+   `gemini` is currently the only supported provider. `LLM_MODEL` selects the Gemini generation model. `CHUNKING_MODE` accepts `ast` (the default) or `lines`; `lines` uses 60-line chunks for every file without symbol metadata. Add one ignore pattern per line to a repository's root `.repomentorignore`; lines starting with `#` are comments. `RETRIEVAL_MIN_SCORE` defaults to `0.5`; adjust it if development logs show the relevant code is frequently rejected or unrelated code is accepted. `ASK_RATE_LIMIT_PER_HOUR` defaults to `20` questions per user per hour.
 
 4. In MongoDB Atlas, create the `chunk_vector_index` vector search index on the `chunks` collection, using the 768-dimensional `embedding` field with cosine similarity and a `repoId` filter field. The app does not create this index automatically.
 

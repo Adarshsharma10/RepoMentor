@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import AuthScreen from './components/AuthScreen.jsx';
 import CodeViewer from './components/CodeViewer.jsx';
 import MarkdownAnswer from './components/MarkdownAnswer.jsx';
-import { apiRequest, userFacingError } from './api.js';
+import { API_URL, apiRequest, userFacingError } from './api.js';
+import { consumeSseStream, removeTrailingIncompleteCitation } from './streaming.js';
+import { parseCitationMarkers } from './citationMarkers.js';
 
 const SUGGESTED_QUESTIONS = [
   'Where is authentication handled?',
@@ -85,12 +87,12 @@ function SourceButton({ source, cited = false, onSelect }) {
   </button>;
 }
 
-function AnswerCard({ message, onSelectSource, selectedSource }) {
+function AnswerCard({ message, onSelectSource, selectedSource, isStreaming = false }) {
   const sources = message.sources || [];
   const sourceNumbers = new Set(sources.map(source => source.n));
   const citations = new Set(
-  [...message.answer.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)]
-    .flatMap((match) => match[1].split(',').map((value) => Number(value.trim())))
+  parseCitationMarkers(message.answer, sourceNumbers)
+    .flatMap((marker) => marker.numbers)
     .filter((number) => sourceNumbers.has(number)),
 );
   const citedSources = sources.filter(source => citations.has(source.n));
@@ -104,8 +106,11 @@ function AnswerCard({ message, onSelectSource, selectedSource }) {
       <span className="message-label">RepoMentor</span>
       <MarkdownAnswer answer={message.answer} sources={sources} onSelectSource={selectSource} selectedSourceNumber={selectedSource?.messageKey === messageKey ? selectedSource.source.n : null} />
     </div>
-    {citedSources.length === 0
-      ? <p className="conversation-empty">No relevant code found for this question.</p>
+    {isStreaming && sources.length > 0
+      ? <section className="answer-sources" aria-label="Sources"><h3>Sources</h3>{sources.map(source => <SourceButton key={source.n} source={source} cited={citations.has(source.n)} onSelect={selectSource} />)}</section>
+      : citedSources.length === 0
+      ? (isStreaming ? null
+        : <p className="conversation-empty">No relevant code found for this question.</p>)
       : <section className="answer-sources" aria-label="Sources">
         <h3>Sources</h3>
         {citedSources.map(source => <SourceButton key={source.n} source={source} cited onSelect={selectSource} />)}
@@ -114,6 +119,7 @@ function AnswerCard({ message, onSelectSource, selectedSource }) {
           {otherSources.map(source => <SourceButton key={source.n} source={source} onSelect={selectSource} />)}
         </details>}
       </section>}
+    {message.stopped && <p className="conversation-empty">Stopped. This partial answer is not saved.</p>}
   </article>;
 }
 
@@ -135,6 +141,7 @@ export default function App() {
   const [askBusy, setAskBusy] = useState(false);
   const [askError, setAskError] = useState('');
   const [askMessages, setAskMessages] = useState({});
+  const [streamingMessage, setStreamingMessage] = useState(null);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -143,6 +150,8 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [selectedSource, setSelectedSource] = useState(null);
   const [mobileViewerOpen, setMobileViewerOpen] = useState(false);
+  const askControllerRef = useRef(null);
+  const askRequestIdRef = useRef(0);
 
   const selectedRepo = repos.find(repo => repo._id === selectedRepoId) || null;
 
@@ -175,15 +184,24 @@ export default function App() {
   }, [selectedRepo?._id, selectedRepo?.status, askMessages]);
 
   function logout() {
+    askRequestIdRef.current += 1;
+    askControllerRef.current?.abort();
     localStorage.removeItem('repomentor-token');
     localStorage.removeItem('repomentor-user');
     setUser(null);
     setRepos([]);
     setSelectedRepoId('');
     setAskMessages({});
+    setStreamingMessage(null);
+    setAskBusy(false);
   }
 
   function selectRepository(repo) {
+    askRequestIdRef.current += 1;
+    askControllerRef.current?.abort();
+    askControllerRef.current = null;
+    setAskBusy(false);
+    setStreamingMessage(null);
     setSelectedRepoId(repo._id);
     setActiveTab('ask');
     setAskQuestion('');
@@ -255,21 +273,92 @@ export default function App() {
     event.preventDefault();
     if (!selectedRepo) return;
     const question = askQuestion.trim();
+    const repoId = selectedRepo._id;
+    askControllerRef.current?.abort();
+    const requestId = askRequestIdRef.current + 1;
+    askRequestIdRef.current = requestId;
+    const controller = new AbortController();
+    askControllerRef.current = controller;
+    let current = { question, answer: '', sources: [], createdAt: new Date().toISOString() };
+    setStreamingMessage({ repoId, message: current });
     setAskBusy(true);
     setAskError('');
     try {
-      const data = await apiRequest(`/api/repos/${selectedRepo._id}/ask`, {
+      const token = localStorage.getItem('repomentor-token');
+      const response = await fetch(`${API_URL}/api/repos/${repoId}/ask/stream`, {
         method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ question })
       });
-      const message = { question, answer: data.answer, sources: data.sources, createdAt: new Date().toISOString() };
-      setAskMessages(current => ({ ...current, [selectedRepo._id]: [...(current[selectedRepo._id] || []), message] }));
-      setAskQuestion('');
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'The request could not be completed. Check the details and try again.');
+      }
+      if (!response.body) throw new Error('The server did not provide a readable answer stream.');
+      let completed = false;
+      await consumeSseStream(response.body.getReader(), event => {
+        if (askRequestIdRef.current !== requestId || controller.signal.aborted) return;
+        const payload = JSON.parse(event.data);
+        if (event.event === 'sources') {
+          current = { ...current, sources: payload };
+          setStreamingMessage({ repoId, message: current });
+        } else if (event.event === 'token') {
+          current = { ...current, answer: current.answer + payload.text };
+          setStreamingMessage({ repoId, message: current });
+        } else if (event.event === 'done') {
+          completed = true;
+          current = { ...current, _id: payload.messageId, answer: payload.answer };
+          setAskMessages(messages => ({ ...messages, [repoId]: [...(messages[repoId] || []), current] }));
+          setStreamingMessage(null);
+          setAskQuestion('');
+        } else if (event.event === 'error') {
+          throw new Error(payload.message || 'The model didn’t respond. Try again in a minute.');
+        }
+      }, controller.signal);
+      if (!completed && current.answer && askRequestIdRef.current === requestId) {
+        // The stream may have ended without a done event; keep the transient answer visible.
+        setStreamingMessage({ repoId, message: current });
+        setAskError('The answer stream ended before it was saved. Try again.');
+      } else if (!completed && askRequestIdRef.current === requestId) {
+        throw new Error('The answer stream ended before completion. Try again.');
+      }
     } catch (error) {
-      setAskError(userFacingError(error));
+      if (askRequestIdRef.current === requestId && error.name !== 'AbortError') setAskError(userFacingError(error));
     } finally {
-      setAskBusy(false);
+      if (askRequestIdRef.current === requestId) {
+        if (askControllerRef.current === controller) askControllerRef.current = null;
+        setAskBusy(false);
+      }
     }
+  }
+
+  function stopAsking() {
+    const controller = askControllerRef.current;
+    askRequestIdRef.current += 1;
+    controller?.abort();
+    askControllerRef.current = null;
+    setAskBusy(false);
+    setAskError('');
+    setStreamingMessage(current => {
+      if (current?.repoId !== selectedRepoId) {
+        return {
+          repoId: selectedRepoId,
+          message: {
+            question: askQuestion.trim(), answer: '', sources: [],
+            createdAt: new Date().toISOString(), stopped: true
+          }
+        };
+      }
+      return {
+        ...current,
+        message: {
+          ...current.message,
+          answer: removeTrailingIncompleteCitation(current.message.answer),
+          stopped: true
+        }
+      };
+    });
   }
 
   async function searchRepository(event) {
@@ -362,14 +451,16 @@ export default function App() {
                   {historyBusy && messages.length === 0 && <div className="answer-skeleton" role="status" aria-live="polite"><span>Loading your previous answers</span><i /><i /><i /></div>}
                   {!historyBusy && messages.length === 0 && <p className="conversation-empty">Ask a question to see an answer grounded in this repository.</p>}
                   {messages.map((message, index) => <AnswerCard key={message._id || `${message.createdAt}-${index}`} message={message} onSelectSource={openSource} selectedSource={selectedSource} />)}
-                  {askBusy && <div className="answer-skeleton" role="status" aria-live="polite"><span>Finding an answer in your code</span><i /><i /><i /></div>}
+                  {streamingMessage?.repoId === selectedRepo._id && <AnswerCard message={streamingMessage.message} onSelectSource={openSource} selectedSource={selectedSource} isStreaming />}
+                  {askBusy && !streamingMessage && <div className="answer-skeleton" role="status" aria-live="polite"><span>Finding an answer in your code</span><i /><i /><i /></div>}
                 </div>
                 {messages.length === 0 && <div className="suggested-questions" aria-label="Suggested questions"><p>Try a question</p>{SUGGESTED_QUESTIONS.map(question => <button type="button" key={question} onClick={() => setAskQuestion(question)}>{question}</button>)}</div>}
                 {askError && <p className="inline-error" role="alert">{askError}</p>}
                 <form className="question-form" onSubmit={askRepository}>
                   <label className="visually-hidden" htmlFor="question-input">Your question</label>
-                  <textarea id="question-input" rows="2" maxLength={500} minLength={3} value={askQuestion} onChange={event => setAskQuestion(event.target.value)} placeholder="Ask about the code…" disabled={askBusy} required />
-                  <button className="button button-primary question-submit" type="submit" disabled={askBusy || askQuestion.trim().length < 3}>{askBusy ? 'Thinking…' : 'Ask'}</button>
+                  <textarea id="question-input" rows="2" maxLength={500} minLength={3} value={askQuestion} onChange={event => setAskQuestion(event.target.value)} placeholder="Ask about the code…" required />
+                  {askBusy && <button className="button button-secondary question-submit" type="button" onClick={stopAsking}>Stop</button>}
+                  <button className="button button-primary question-submit" type="submit" disabled={askQuestion.trim().length < 3}>{askBusy ? 'Ask new question' : 'Ask'}</button>
                 </form>
               </> : <>
                 <div className="conversation-heading"><h2>Closest matches</h2><p>Search for code by describing what you need.</p></div>

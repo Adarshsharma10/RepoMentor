@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import { Highlight, themes } from 'prism-react-renderer';
+import { parseCitationMarkers } from '../citationMarkers.js';
 
 const LANGUAGE_ALIASES = {
   javascript: 'jsx', typescript: 'tsx', shell: 'bash', csharp: 'csharp', cpp: 'cpp',
@@ -37,18 +38,15 @@ function remarkCitationLinks(options) {
           return [child];
         }
         const nextNodes = [];
-        const pattern = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+        const markers = parseCitationMarkers(child.value, availableSources);
         let previousEnd = 0;
-        let match;
-        while ((match = pattern.exec(child.value)) !== null) {
-          const numbers = match[1].split(',').map(value => Number(value.trim())).filter(number => availableSources.has(number));
-          if (numbers.length === 0) continue;
-          if (match.index > previousEnd) nextNodes.push({ type: 'text', value: child.value.slice(previousEnd, match.index) });
-          numbers.forEach((number, index) => {
+        for (const marker of markers) {
+          if (marker.start > previousEnd) nextNodes.push({ type: 'text', value: child.value.slice(previousEnd, marker.start) });
+          marker.numbers.forEach((number, index) => {
             if (index > 0) nextNodes.push({ type: 'text', value: ' ' });
             nextNodes.push({ type: 'link', url: `#citation-${number}`, children: [{ type: 'text', value: `[${number}]` }] });
           });
-          previousEnd = pattern.lastIndex;
+          previousEnd = marker.end;
         }
         if (previousEnd === 0) return [child];
         if (previousEnd < child.value.length) nextNodes.push({ type: 'text', value: child.value.slice(previousEnd) });

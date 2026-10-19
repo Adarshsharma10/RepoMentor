@@ -75,3 +75,42 @@ export async function generateAnswer({ system, user }) {
 
   throw new LlmError(503, 'The answer service failed after several attempts. Try again later.');
 }
+
+export async function* streamAnswer({ system, user, signal }) {
+  if (typeof system !== 'string' || typeof user !== 'string') {
+    throw new TypeError('streamAnswer expects system and user strings');
+  }
+  const genai = getClient();
+  const model = process.env.LLM_MODEL?.trim() || 'gemini-2.5-flash';
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    let emittedText = false;
+    try {
+      const responseStream = await genai.models.generateContentStream({
+        model,
+        contents: user,
+        config: { systemInstruction: system, temperature: 0.2, maxOutputTokens: 1024, abortSignal: signal }
+      });
+      for await (const response of responseStream) {
+        const delta = typeof response.text === 'string' ? response.text : '';
+        if (!delta) continue;
+        emittedText = true;
+        yield delta;
+      }
+      if (!emittedText) throw new LlmError(502, 'The answer service returned an empty answer. Try again.');
+      return;
+    } catch (error) {
+      if (error instanceof LlmError) throw error;
+      const status = errorStatus(error);
+      const retryable = status === 429 || (status >= 500 && status < 600)
+        || /resource_exhausted|rate limit|too many requests/i.test(error.message || '');
+      if (retryable && !emittedText && attempt < MAX_RETRIES) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_BASE_MS * (2 ** attempt)));
+        continue;
+      }
+      throw safeLlmError(error);
+    }
+  }
+
+  throw new LlmError(503, 'The answer service failed after several attempts. Try again later.');
+}

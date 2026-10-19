@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
+    "test": "node --test",
     "start": "node src/index.js"
   },
   "dependencies": {

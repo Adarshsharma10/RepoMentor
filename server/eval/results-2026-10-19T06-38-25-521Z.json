@@ -1,0 +1,669 @@
+{
+  "repo": {
+    "id": "6ad5b99779a88d514d8ed2d9",
+    "name": "Adarshsharma10/RepoMentor"
+  },
+  "topK": 5,
+  "hitRate": 0.95,
+  "mrr": 0.925,
+  "precisionAtK": 0.43000000000000005,
+  "hits": 19,
+  "total": 20,
+  "highestNegativeScore": 0.7624768018722534,
+  "lowestPositiveTop1Score": 0.8110970854759216,
+  "results": [
+    {
+      "question": "where is the password hashed",
+      "expectedFiles": [
+        "server/src/routes/auth.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8322917222976685
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8210837841033936
+        },
+        {
+          "filePath": "server/src/models/User.js",
+          "score": 0.8183884620666504
+        },
+        {
+          "filePath": "client/src/components/AuthScreen.jsx",
+          "score": 0.8133662939071655
+        },
+        {
+          "filePath": "client/src/components/AuthScreen.jsx",
+          "score": 0.8014901280403137
+        }
+      ]
+    },
+    {
+      "question": "how is the jwt token checked",
+      "expectedFiles": [
+        "server/src/middleware/requireAuth.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/middleware/requireAuth.js",
+          "score": 0.8538184762001038
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8148694634437561
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8138589859008789
+        },
+        {
+          "filePath": "client/src/components/AuthScreen.jsx",
+          "score": 0.8004826307296753
+        },
+        {
+          "filePath": "server/package.json",
+          "score": 0.798977792263031
+        }
+      ]
+    },
+    {
+      "question": "how is mongodb connected",
+      "expectedFiles": [
+        "server/src/config/database.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/config/database.js",
+          "score": 0.8587809801101685
+        },
+        {
+          "filePath": "server/src/index.js",
+          "score": 0.8202514052391052
+        },
+        {
+          "filePath": "server/src/app.js",
+          "score": 0.8143436312675476
+        },
+        {
+          "filePath": "server/src/services/retrieval.js",
+          "score": 0.8066754341125488
+        },
+        {
+          "filePath": "server/src/models/Repo.js",
+          "score": 0.8060194849967957
+        }
+      ]
+    },
+    {
+      "question": "where are errors turned into responses",
+      "expectedFiles": [
+        "server/src/middleware/errorHandler.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 2,
+      "topResults": [
+        {
+          "filePath": "client/src/api.js",
+          "score": 0.8440136909484863
+        },
+        {
+          "filePath": "server/src/middleware/errorHandler.js",
+          "score": 0.8378757834434509
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8189011812210083
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8153507709503174
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8136301040649414
+        }
+      ]
+    },
+    {
+      "question": "how is the user schema defined",
+      "expectedFiles": [
+        "server/src/models/User.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/models/User.js",
+          "score": 0.8572055101394653
+        },
+        {
+          "filePath": "server/src/models/Repo.js",
+          "score": 0.8301252126693726
+        },
+        {
+          "filePath": "server/src/models/Message.js",
+          "score": 0.8265204429626465
+        },
+        {
+          "filePath": "server/src/models/Chunk.js",
+          "score": 0.8200064301490784
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8115131855010986
+        }
+      ]
+    },
+    {
+      "question": "how are files split into chunks",
+      "expectedFiles": [
+        "server/src/services/ingestion.js"
+      ],
+      "status": "MISS",
+      "firstHitRank": null,
+      "topResults": [
+        {
+          "filePath": "server/src/services/chunker.js",
+          "score": 0.8547999858856201
+        },
+        {
+          "filePath": "server/src/services/chunker.js",
+          "score": 0.8525347709655762
+        },
+        {
+          "filePath": "server/src/services/chunker.js",
+          "score": 0.8420065641403198
+        },
+        {
+          "filePath": "server/src/services/chunker.js",
+          "score": 0.8413693308830261
+        },
+        {
+          "filePath": "server/test/chunker.test.js",
+          "score": 0.8408435583114624
+        }
+      ]
+    },
+    {
+      "question": "how are embeddings generated",
+      "expectedFiles": [
+        "server/src/services/embeddings.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8612990379333496
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8540818691253662
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8529900312423706
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8368822336196899
+        },
+        {
+          "filePath": "server/src/services/retrieval.js",
+          "score": 0.8208164572715759
+        }
+      ]
+    },
+    {
+      "question": "where is the vector search query",
+      "expectedFiles": [
+        "server/src/services/retrieval.js",
+        "server/src/routes/repos.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/services/retrieval.js",
+          "score": 0.8620662689208984
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8494467735290527
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8396773338317871
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8336458206176758
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.825082540512085
+        }
+      ]
+    },
+    {
+      "question": "how is the language model called",
+      "expectedFiles": [
+        "server/src/services/llm.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.8368352651596069
+        },
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.8287531137466431
+        },
+        {
+          "filePath": "server/src/services/chunker.js",
+          "score": 0.8189318180084229
+        },
+        {
+          "filePath": "server/src/services/chunker.js",
+          "score": 0.8151364326477051
+        },
+        {
+          "filePath": "server/src/models/Chunk.js",
+          "score": 0.8138397932052612
+        }
+      ]
+    },
+    {
+      "question": "how is login rate limited",
+      "expectedFiles": [
+        "server/src/routes/auth.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.824222981929779
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8119984269142151
+        },
+        {
+          "filePath": "client/src/components/AuthScreen.jsx",
+          "score": 0.8104043006896973
+        },
+        {
+          "filePath": "client/src/components/AuthScreen.jsx",
+          "score": 0.7981312274932861
+        },
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.7908502817153931
+        }
+      ]
+    },
+    {
+      "question": "What happens after I send a question, from the text I type to the code results?",
+      "expectedFiles": [
+        "client/src/App.jsx",
+        "server/src/routes/repos.js",
+        "server/src/services/embeddings.js",
+        "server/src/services/retrieval.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8717250227928162
+        },
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.8517370223999023
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8438680171966553
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8397488594055176
+        },
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.8393031358718872
+        }
+      ]
+    },
+    {
+      "question": "After I sign in, where does the browser keep track of who I am?",
+      "expectedFiles": [
+        "client/src/components/AuthScreen.jsx",
+        "client/src/App.jsx"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "client/src/components/AuthScreen.jsx",
+          "score": 0.8110970854759216
+        },
+        {
+          "filePath": "client/src/components/AuthScreen.jsx",
+          "score": 0.7986626625061035
+        },
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.7926141619682312
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.7916239500045776
+        },
+        {
+          "filePath": "client/DESIGN.md",
+          "score": 0.7872118949890137
+        }
+      ]
+    },
+    {
+      "question": "Which repository files are left out when code is imported?",
+      "expectedFiles": [
+        "server/src/services/ingestion.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.8451781272888184
+        },
+        {
+          "filePath": "server/test/repomentorIgnore.test.js",
+          "score": 0.8449543714523315
+        },
+        {
+          "filePath": "server/src/services/repomentorIgnore.js",
+          "score": 0.8372095823287964
+        },
+        {
+          "filePath": ".gitignore",
+          "score": 0.8359911441802979
+        },
+        {
+          "filePath": "server/src/services/ingestion.js",
+          "score": 0.8355098962783813
+        }
+      ]
+    },
+    {
+      "question": "How are failures from the text generation and vector services shown safely?",
+      "expectedFiles": [
+        "server/src/services/llm.js",
+        "server/src/services/embeddings.js",
+        "server/src/middleware/errorHandler.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8587220907211304
+        },
+        {
+          "filePath": "server/src/services/embeddings.js",
+          "score": 0.8536574840545654
+        },
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.8445369005203247
+        },
+        {
+          "filePath": "server/src/services/retrieval.js",
+          "score": 0.840437650680542
+        },
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.8396999835968018
+        }
+      ]
+    },
+    {
+      "question": "How does the app choose matching code before writing an answer?",
+      "expectedFiles": [
+        "server/src/routes/repos.js",
+        "server/src/services/retrieval.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8384055495262146
+        },
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.8330380916595459
+        },
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.8324552774429321
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8289624452590942
+        },
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.8277419805526733
+        }
+      ]
+    },
+    {
+      "question": "How does the app keep instructions inside repository files from controlling an answer?",
+      "expectedFiles": [
+        "server/src/routes/repos.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8530953526496887
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8418161273002625
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8390468955039978
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8386784791946411
+        },
+        {
+          "filePath": "server/scripts/eval.js",
+          "score": 0.8383530378341675
+        }
+      ]
+    },
+    {
+      "question": "How can I switch the sign-in form between creating an account and logging in?",
+      "expectedFiles": [
+        "client/src/components/AuthScreen.jsx"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "client/src/components/AuthScreen.jsx",
+          "score": 0.8670313358306885
+        },
+        {
+          "filePath": "client/src/components/AuthScreen.jsx",
+          "score": 0.8601324558258057
+        },
+        {
+          "filePath": "server/src/routes/auth.js",
+          "score": 0.8125936985015869
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8105361461639404
+        },
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.8051730394363403
+        }
+      ]
+    },
+    {
+      "question": "How does the repository workspace rearrange itself for a phone screen?",
+      "expectedFiles": [
+        "client/src/styles.css",
+        "client/src/App.jsx"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.8584567308425903
+        },
+        {
+          "filePath": "client/DESIGN.md",
+          "score": 0.8545688390731812
+        },
+        {
+          "filePath": "client/src/styles.css",
+          "score": 0.8395950794219971
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8342307209968567
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8274449706077576
+        }
+      ]
+    },
+    {
+      "question": "When I reopen a repository, how does the app bring back my earlier questions?",
+      "expectedFiles": [
+        "client/src/App.jsx",
+        "server/src/routes/repos.js",
+        "server/src/models/Message.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8399239778518677
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8360748887062073
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8349366784095764
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8301099538803101
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8294991850852966
+        }
+      ]
+    },
+    {
+      "question": "How does the app switch between different AI providers for answers?",
+      "expectedFiles": [
+        "server/src/services/llm.js"
+      ],
+      "status": "HIT",
+      "firstHitRank": 1,
+      "topResults": [
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.836675763130188
+        },
+        {
+          "filePath": "server/src/services/llm.js",
+          "score": 0.8296062350273132
+        },
+        {
+          "filePath": "server/src/routes/repos.js",
+          "score": 0.8184982538223267
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.8108230829238892
+        },
+        {
+          "filePath": "client/src/App.jsx",
+          "score": 0.808771014213562
+        }
+      ]
+    }
+  ],
+  "negativeResults": [
+    {
+      "question": "What is the currency used in France?",
+      "topScore": 0.7335047125816345,
+      "topResult": {
+        "filePath": "client/vite.config.js",
+        "score": 0.7335047125816345
+      }
+    },
+    {
+      "question": "How tall is Mount Everest?",
+      "topScore": 0.7550525069236755,
+      "topResult": {
+        "filePath": "client/src/styles.css",
+        "score": 0.7550525069236755
+      }
+    },
+    {
+      "question": "What is the capital city of Japan?",
+      "topScore": 0.7560069561004639,
+      "topResult": {
+        "filePath": "client/src/App.jsx",
+        "score": 0.7560069561004639
+      }
+    },
+    {
+      "question": "How many planets are in the solar system?",
+      "topScore": 0.7499650716781616,
+      "topResult": {
+        "filePath": "client/src/styles.css",
+        "score": 0.7499650716781616
+      }
+    },
+    {
+      "question": "What is the boiling point of water at sea level?",
+      "topScore": 0.7624768018722534,
+      "topResult": {
+        "filePath": "client/src/styles.css",
+        "score": 0.7624768018722534
+      }
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import { isMissingVectorIndex, retrieveChunks } from '../services/retrieval.js';
 import { cleanCitationMarkers, isGroundedAnswer, NOT_FOUND_ANSWER, prepareAnswer } from '../services/answering.js';
 import { formatSseEvent, startSseHeartbeat } from '../services/sse.js';
 import { embedQuery } from '../services/embeddings.js';
+import { reserveDailyModelCall } from '../services/dailyAskLimit.js';
 const router = Router();
 router.use(requireAuth);
 
@@ -234,9 +235,11 @@ router.post('/:id/ask', askLimiter, async (req, res, next) => {
       return next(withVectorIndexMessage(error));
     }
     const sources = prepared.sources;
-    const answer = prepared.prompt
-      ? cleanCitationMarkers(await generateAnswer(prepared.prompt), sources)
-      : NOT_FOUND_ANSWER;
+    let answer = NOT_FOUND_ANSWER;
+    if (prepared.prompt) {
+      await reserveDailyModelCall();
+      answer = cleanCitationMarkers(await generateAnswer(prepared.prompt), sources);
+    }
     const grounded = isGroundedAnswer(answer, sources);
 
     await Message.create({
@@ -280,25 +283,40 @@ router.post('/:id/ask/stream', askLimiter, async (req, res, next) => {
     const question = getAskInput(req, res);
     if (!question || disconnected) return;
 
-    res.status(200);
-    res.set({
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no'
-    });
-    if (disconnected || res.destroyed) return;
-    res.flushHeaders();
-    responseStarted = true;
-    heartbeatStop = startSseHeartbeat(res);
+    const beginStream = () => {
+      res.status(200);
+      res.set({
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      });
+      if (disconnected || res.destroyed) return false;
+      res.flushHeaders();
+      responseStarted = true;
+      heartbeatStop = startSseHeartbeat(res);
+      return true;
+    };
 
     let prepared;
     try {
       prepared = await prepareAnswer(repo._id, question);
     } catch (error) {
-      throw withVectorIndexMessage(error);
+      const streamError = withVectorIndexMessage(error);
+      if (!beginStream()) return;
+      throw streamError;
     }
     if (disconnected) return;
+    if (prepared.prompt) {
+      try {
+        await reserveDailyModelCall();
+      } catch (error) {
+        if (error?.name === 'DailyAskLimitError') throw error;
+        if (!beginStream()) return;
+        throw error;
+      }
+    }
+    if (!beginStream()) return;
 
     if (!sendSse(res, 'sources', prepared.sources)) {
       markDisconnected();

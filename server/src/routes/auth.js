@@ -34,6 +34,9 @@ function issueToken(user) {
 }
 
 router.post('/register', authRateLimit, async (req, res, next) => {
+  if (String(process.env.REGISTRATION_OPEN ?? 'true').toLowerCase() === 'false') {
+    return res.status(403).json({ error: 'Registration is closed.' });
+  }
   try {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';

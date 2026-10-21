@@ -32,6 +32,19 @@ test('JavaScript chunks use 1-based lines and keep header and named function met
   assert.ok(chunks.some(chunk => chunk.kind === 'header' && chunk.startLine === 1 && chunk.endLine === 5));
 });
 
+test('exported async generator chunks use the generator name as their symbol', async () => {
+  const content = [
+    'export async function* readRecords() {',
+    '  const first = 1;',
+    '  yield first;',
+    '  yield first + 1;',
+    '  return;',
+    '}'
+  ].join('\n');
+  const chunks = await chunkFile({ filePath: 'src/records.js', language: 'javascript', content });
+  assert.ok(chunks.some(chunk => chunk.kind === 'function' && chunk.symbol === 'readRecords'));
+});
+
 test('TypeScript interface and TSX exported arrow function are recognized', async () => {
   const typescript = [
     'export interface UserProfile {',

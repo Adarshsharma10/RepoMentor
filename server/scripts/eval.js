@@ -59,21 +59,21 @@ async function evaluateRepo(repoId, topK) {
       }
       try {
         await fs.access(absolutePath);
-      } catch {
-        throw new Error(`Expected file does not exist in this repository: ${expectedPath}`);
+      } catch (error) {
+        throw new Error(`Expected file does not exist in this repository: ${expectedPath}`, { cause: error });
       }
     }
   }
 
   const results = [];
-  for (const [index, item] of fixture.questions.entries()) {
+  for (const item of fixture.questions) {
     const queryVector = await embedQuery(item.q);
     let matches;
     try {
       matches = await retrieveChunks(repo._id, queryVector, topK);
     } catch (error) {
       if (isMissingVectorIndex(error)) {
-        throw new Error('MongoDB Atlas vector index "chunk_vector_index" is missing or not ready. Create it in Atlas and retry.');
+        throw new Error('MongoDB Atlas vector index "chunk_vector_index" is missing or not ready. Create it in Atlas and retry.', { cause: error });
       }
       throw error;
     }
@@ -99,7 +99,7 @@ async function evaluateRepo(repoId, topK) {
       matches = await retrieveChunks(repo._id, queryVector, 1);
     } catch (error) {
       if (isMissingVectorIndex(error)) {
-        throw new Error('MongoDB Atlas vector index "chunk_vector_index" is missing or not ready. Create it in Atlas and retry.');
+        throw new Error('MongoDB Atlas vector index "chunk_vector_index" is missing or not ready. Create it in Atlas and retry.', { cause: error });
       }
       throw error;
     }

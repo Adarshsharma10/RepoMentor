@@ -5,6 +5,7 @@ export function isMissingVectorIndex(error) {
 }
 
 // Keep vector-search settings here so the API and evaluation script use the same query.
+// Callers must verify that the user owns the repository before retrieving its chunks.
 export async function retrieveChunks(repoId, queryVector, limit = 5) {
   return Chunk.aggregate([
     {

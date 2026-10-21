@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "test": "node --test",
+    "lint": "eslint .",
     "start": "node src/index.js"
   },
   "dependencies": {

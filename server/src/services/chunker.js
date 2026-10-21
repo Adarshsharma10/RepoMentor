@@ -224,7 +224,7 @@ function topLevelDescriptors(root, language) {
     }
     flushHeader();
 
-    if (['function_declaration', 'function_definition'].includes(declaration.type)) {
+    if (['function_declaration', 'generator_function_declaration', 'function_definition'].includes(declaration.type)) {
       descriptors.push({ startLine: nodeStartLine(node), endLine: nodeEndLine(node), symbol: namedText(declaration) || 'anonymous function', kind: 'function' });
     } else if (['class_declaration', 'class_definition', 'abstract_class_declaration'].includes(declaration.type)) {
       const chunks = classDescriptors(declaration, language);

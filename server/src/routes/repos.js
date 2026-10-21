@@ -8,11 +8,19 @@ import { Message } from '../models/Message.js';
 import { ingestRepository } from '../services/ingestion.js';
 import { generateAnswer, streamAnswer } from '../services/llm.js';
 import { isMissingVectorIndex, retrieveChunks } from '../services/retrieval.js';
-import { cleanCitationMarkers, NOT_FOUND_ANSWER, prepareAnswer } from '../services/answering.js';
-import { formatSseEvent } from '../services/sse.js';
+import { cleanCitationMarkers, isGroundedAnswer, NOT_FOUND_ANSWER, prepareAnswer } from '../services/answering.js';
+import { formatSseEvent, startSseHeartbeat } from '../services/sse.js';
 import { embedQuery } from '../services/embeddings.js';
 const router = Router();
 router.use(requireAuth);
+
+function safeLogValue(value) {
+  let text = String(value ?? 'unknown').replace(/[\r\n\t]/g, ' ');
+  const secrets = [process.env.GEMINI_API_KEY, process.env.GITHUB_TOKEN, process.env.JWT_SECRET, process.env.MONGODB_URI]
+    .filter(Boolean);
+  for (const secret of secrets) text = text.split(secret).join('[redacted]');
+  return text.replace(/(api[_-]?key|token|password|secret)\s*[:=]\s*[^,;\s]+/gi, '$1=[redacted]');
+}
 
 const addRepoLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -55,12 +63,23 @@ function getAskInput(req, res) {
   return question;
 }
 
-async function getAskRepo(req, res) {
+async function requireRepoEmbeddings(repo, res, use, shouldStop = () => false) {
+  if (repo.chunkCount === 0) return true;
+  const hasEmbedding = await Chunk.exists({ repoId: repo._id, embedding: { $exists: true } });
+  if (shouldStop()) return false;
+  if (hasEmbedding) return true;
+  const action = use === 'search' ? 'search' : 'questions';
+  res.status(409).json({ error: `This repository was indexed before embeddings were added. Delete it and add it again to enable ${action}.` });
+  return false;
+}
+
+async function getAskRepo(req, res, shouldStop = () => false) {
   if (!isValidRepoId(req.params.id)) {
     res.status(404).json({ error: 'Repository not found' });
     return null;
   }
   const repo = await Repo.findOne({ _id: req.params.id, userId: req.auth.sub });
+  if (shouldStop()) return null;
   if (!repo) {
     res.status(404).json({ error: 'Repository not found' });
     return null;
@@ -69,13 +88,7 @@ async function getAskRepo(req, res) {
     res.status(409).json({ error: `Repository is not ready for questions (status: ${repo.status}).` });
     return null;
   }
-  if (repo.chunkCount > 0) {
-    const hasEmbedding = await Chunk.exists({ repoId: repo._id, embedding: { $exists: true } });
-    if (!hasEmbedding) {
-      res.status(409).json({ error: 'This repository was indexed before embeddings were added. Delete it and add it again to enable questions.' });
-      return null;
-    }
-  }
+  if (!await requireRepoEmbeddings(repo, res, 'questions', shouldStop)) return null;
   return repo;
 }
 
@@ -159,6 +172,9 @@ router.post('/', addRepoLimiter, async (req, res, next) => {
       return next(error);
     }
   } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ error: 'This repository is already added.' });
+    }
     return next(error);
   }
 });
@@ -190,25 +206,14 @@ router.post('/:id/search', searchLimiter, async (req, res, next) => {
       return res.status(400).json({ error: 'Search limit must be a whole number from 1 to 10.' });
     }
 
-    if (repo.chunkCount > 0) {
-      const hasEmbedding = await Chunk.exists({ repoId: repo._id, embedding: { $exists: true } });
-      if (!hasEmbedding) {
-        return res.status(409).json({ error: 'This repository was indexed before embeddings were added. Delete it and add it again to enable search.' });
-      }
-    }
+    if (!await requireRepoEmbeddings(repo, res, 'search')) return;
 
     const queryVector = await embedQuery(query);
     let results;
     try {
       results = await retrieveChunks(repo._id, queryVector, limit);
     } catch (error) {
-      if (isMissingVectorIndex(error)) {
-        const indexError = new Error('MongoDB Atlas vector index "chunk_vector_index" is missing or not ready. Create it in the Atlas UI and try again.');
-        indexError.status = 503;
-        indexError.publicMessage = indexError.message;
-        return next(indexError);
-      }
-      return next(error);
+      return next(withVectorIndexMessage(error));
     }
     return res.json({ results });
   } catch (error) {
@@ -232,15 +237,17 @@ router.post('/:id/ask', askLimiter, async (req, res, next) => {
     const answer = prepared.prompt
       ? cleanCitationMarkers(await generateAnswer(prepared.prompt), sources)
       : NOT_FOUND_ANSWER;
+    const grounded = isGroundedAnswer(answer, sources);
 
     await Message.create({
       userId: req.auth.sub,
       repoId: repo._id,
       question,
       answer,
+      grounded,
       sources
     });
-    return res.json({ answer, sources });
+    return res.json({ answer, sources, grounded });
   } catch (error) {
     return next(error);
   }
@@ -248,11 +255,30 @@ router.post('/:id/ask', askLimiter, async (req, res, next) => {
 
 router.post('/:id/ask/stream', askLimiter, async (req, res, next) => {
   let responseStarted = false;
+  let disconnected = false;
+  let disconnectLogged = false;
+  let heartbeatStop;
+  const generationController = new AbortController();
+  const markDisconnected = () => {
+    if (disconnected) return;
+    disconnected = true;
+    heartbeatStop?.();
+    generationController.abort();
+    if (!disconnectLogged) {
+      disconnectLogged = true;
+      console.log('client disconnected');
+    }
+  };
+  res.on('close', () => {
+    if (!res.writableEnded) markDisconnected();
+  });
+  if (disconnected || res.destroyed) return;
+
   try {
-    const repo = await getAskRepo(req, res);
-    if (!repo) return;
+    const repo = await getAskRepo(req, res, () => disconnected);
+    if (!repo || disconnected) return;
     const question = getAskInput(req, res);
-    if (!question) return;
+    if (!question || disconnected) return;
 
     res.status(200);
     res.set({
@@ -261,24 +287,10 @@ router.post('/:id/ask/stream', askLimiter, async (req, res, next) => {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no'
     });
+    if (disconnected || res.destroyed) return;
     res.flushHeaders();
     responseStarted = true;
-
-    let disconnected = false;
-    let disconnectLogged = false;
-    const generationController = new AbortController();
-    const markDisconnected = () => {
-      if (disconnected) return;
-      disconnected = true;
-      generationController.abort();
-      if (!disconnectLogged) {
-        disconnectLogged = true;
-        console.log('client disconnected');
-      }
-    };
-    res.on('close', () => {
-      if (!res.writableEnded) markDisconnected();
-    });
+    heartbeatStop = startSseHeartbeat(res);
 
     let prepared;
     try {
@@ -286,12 +298,12 @@ router.post('/:id/ask/stream', askLimiter, async (req, res, next) => {
     } catch (error) {
       throw withVectorIndexMessage(error);
     }
+    if (disconnected) return;
 
     if (!sendSse(res, 'sources', prepared.sources)) {
       markDisconnected();
       return;
     }
-    if (disconnected) return;
 
     let answer = prepared.answer;
     if (prepared.prompt) {
@@ -307,29 +319,37 @@ router.post('/:id/ask/stream', askLimiter, async (req, res, next) => {
       answer = cleanCitationMarkers(answer, prepared.sources);
     }
     if (disconnected) return;
+    const grounded = isGroundedAnswer(answer, prepared.sources);
 
     const message = await Message.create({
       userId: req.auth.sub,
       repoId: repo._id,
       question,
       answer,
+      grounded,
       sources: prepared.sources
     });
     if (disconnected) {
       await Message.deleteOne({ _id: message._id, userId: req.auth.sub });
       return;
     }
-    if (!sendSse(res, 'done', { messageId: String(message._id), answer })) {
+    if (!sendSse(res, 'done', { messageId: String(message._id), answer, grounded })) {
       markDisconnected();
       await Message.deleteOne({ _id: message._id, userId: req.auth.sub });
       return;
     }
+    heartbeatStop?.();
     endSse(res);
   } catch (error) {
-    if (responseStarted && (res.destroyed || res.writableEnded)) return;
+    if (disconnected || res.destroyed || res.writableEnded) return;
     if (!responseStarted) return next(error);
+    const name = safeLogValue(error?.name || 'Error');
+    const status = safeLogValue(error?.status ?? error?.response?.status ?? error?.code ?? 'unknown');
+    const detail = safeLogValue(error?.message || 'Unknown error');
+    console.error(`[ask/stream] name=${name} status=${status} message=${detail}`);
     const message = error?.publicMessage || 'The answer could not be generated. Try again in a minute.';
     sendSse(res, 'error', { message });
+    heartbeatStop?.();
     endSse(res);
   }
 });

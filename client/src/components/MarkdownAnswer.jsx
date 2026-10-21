@@ -67,8 +67,18 @@ export default function MarkdownAnswer({ answer, sources, onSelectSource, select
           const source = sources.find(item => item.n === number);
           return <button className={`citation-chip${selectedSourceNumber === number ? ' selected' : ''}`} type="button" onClick={() => source && onSelectSource(source)} aria-label={`Open source ${number}`} aria-pressed={selectedSourceNumber === number}>{children}</button>;
         }
-        return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+        let safeUrl;
+        try {
+          const parsedUrl = new URL(href);
+          if (parsedUrl.protocol === 'https:') safeUrl = parsedUrl.href;
+        } catch {
+          safeUrl = null;
+        }
+        return safeUrl
+          ? <a href={safeUrl} target="_blank" rel="noopener noreferrer">{children}</a>
+          : <>{children}</>;
       },
+      img() { return null; },
       code({ className, children }) {
         const match = /language-([\w-]+)/.exec(className || '');
         const code = String(children).replace(/\n$/, '');

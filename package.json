@@ -6,10 +6,19 @@
   "scripts": {
     "dev": "concurrently -k -n server,client -c blue,green \"npm run dev --workspace server\" \"npm run dev --workspace client\"",
     "build": "npm run build --workspace client",
-    "lint": "node --check server/src/routes/repos.js && node --check server/src/services/llm.js && node --check server/src/services/answering.js && node --check server/src/services/sse.js && node --check client/src/streaming.js && node --check client/src/citationMarkers.js && npm run build --workspace client",
+    "check": "node --check server/src/routes/repos.js && node --check server/src/services/llm.js && node --check server/src/services/answering.js && node --check server/src/services/sse.js && node --check client/src/streaming.js && node --check client/src/citationMarkers.js && npm run build --workspace client",
+    "lint": "eslint .",
     "test": "npm run test --workspace server",
     "start": "npm run start --workspace server"
   },
-  "workspaces": ["client", "server"],
-  "devDependencies": { "concurrently": "^9.1.2" }
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.1.2",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0"
+  }
 }

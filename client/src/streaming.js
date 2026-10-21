@@ -2,6 +2,19 @@ export function removeTrailingIncompleteCitation(answer) {
   return answer.replace(/\[\d+(?:\s*,\s*\d*)*\s*$/, '').trimEnd();
 }
 
+export const STREAM_ERROR_FALLBACK = "The model didn't respond. Try again in a minute.";
+
+export function getStreamErrorMessage(eventData) {
+  try {
+    const payload = JSON.parse(eventData);
+    return typeof payload.message === 'string' && payload.message.trim()
+      ? payload.message
+      : STREAM_ERROR_FALLBACK;
+  } catch {
+    return STREAM_ERROR_FALLBACK;
+  }
+}
+
 export async function consumeSseStream(reader, onEvent, signal) {
   const decoder = new TextDecoder();
   let buffer = '';

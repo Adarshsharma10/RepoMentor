@@ -95,6 +95,7 @@ h1,h2,h3,p { overflow-wrap: anywhere; }
 .message-label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 14px; font-weight: 600; }
 .message-question p { margin: 0; font-size: 16px; line-height: 1.6; }
 .answer-content { max-width: 70ch; }
+.grounding-note { max-width: 70ch; margin: 10px 0 0; color: var(--muted); font-size: 14px; }
 .markdown-answer { color: var(--ink); font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; }
 .markdown-answer p { margin: 0 0 12px; }
 .markdown-answer h1,.markdown-answer h2,.markdown-answer h3 { margin: 20px 0 8px; line-height: 1.35; }

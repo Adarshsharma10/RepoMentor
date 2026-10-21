@@ -16,6 +16,7 @@ const messageSchema = new mongoose.Schema({
   repoId: { type: mongoose.Schema.Types.ObjectId, ref: 'Repo', required: true, index: true },
   question: { type: String, required: true },
   answer: { type: String, required: true },
+  grounded: { type: Boolean, default: true },
   sources: { type: [sourceSchema], default: [] },
   createdAt: { type: Date, default: Date.now }
 });

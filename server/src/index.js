@@ -15,7 +15,7 @@ try {
   await connectDatabase(MONGODB_URI);
   await Repo.updateMany(
     { status: 'indexing' },
-    { $set: { status: 'failed', errorMessage: 'Indexing was interrupted. Delete and add again.' } }
+    { $set: { status: 'failed', errorMessage: 'Indexing was interrupted. Delete and add it again.' } }
   );
   createApp().listen(PORT, () => console.log(`RepoMentor API listening on port ${PORT}`));
 } catch (error) {

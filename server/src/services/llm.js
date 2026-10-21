@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 
 const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 1000;
+const OVERALL_TIMEOUT_MS = 60_000;
 let client;
 
 export class LlmError extends Error {
@@ -14,22 +15,28 @@ export class LlmError extends Error {
 }
 
 function errorStatus(error) {
-  if (Number.isInteger(error.status)) return error.status;
-  if (Number.isInteger(error.response?.status)) return error.response.status;
-  if (Number.isInteger(error.code)) return error.code;
-  const match = String(error.message || '').match(/\b(429|5\d\d)\b/);
-  return match ? Number(match[1]) : 0;
+  return [error?.status, error?.response?.status, error?.code]
+    .find(value => Number.isInteger(value)) || 0;
+}
+
+function classifyError(error) {
+  const status = errorStatus(error);
+  return { status, retryable: status === 429 || (status >= 500 && status < 600) };
 }
 
 function safeLlmError(error) {
-  const status = errorStatus(error);
-  if (status === 429 || /resource_exhausted|rate limit|too many requests/i.test(error.message || '')) {
-    return new LlmError(429, 'The answer service is rate limited. Try again shortly.');
-  }
+  const { status } = classifyError(error);
+  if (status === 429) return new LlmError(429, 'The answer service is rate limited. Try again shortly.');
   if (status >= 500 && status < 600) return new LlmError(503, 'The answer service is temporarily unavailable. Try again later.');
   if (status === 400) return new LlmError(400, 'The answer service could not process this request.');
   if (status === 401 || status === 403) return new LlmError(503, 'The Gemini API configuration is invalid. Check GEMINI_API_KEY.');
   return new LlmError(502, 'Could not generate an answer. Check the Gemini configuration and try again.');
+}
+
+function getModel() {
+  const model = process.env.LLM_MODEL?.trim();
+  if (!model) throw new LlmError(503, 'LLM_MODEL is required. Set it in server/.env.');
+  return model;
 }
 
 function getClient() {
@@ -37,80 +44,179 @@ function getClient() {
   if (provider !== 'gemini') {
     throw new LlmError(503, `LLM_PROVIDER "${provider}" is not supported. Set it to "gemini".`);
   }
+  if (client) return client;
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new LlmError(503, 'GEMINI_API_KEY is required to answer questions. Add it to server/.env.');
-  if (!client) client = new GoogleGenAI({ apiKey });
+  client = new GoogleGenAI({ apiKey });
   return client;
 }
 
-export async function generateAnswer({ system, user }) {
-  if (typeof system !== 'string' || typeof user !== 'string') {
-    throw new TypeError('generateAnswer expects system and user strings');
-  }
-  const genai = getClient();
-  const model = process.env.LLM_MODEL?.trim() || 'gemini-2.5-flash';
+function makeOperationSignal(callerSignal) {
+  const timeoutSignal = AbortSignal.timeout(OVERALL_TIMEOUT_MS);
+  const signal = callerSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : timeoutSignal;
+  return { signal, callerSignal, timeoutSignal };
+}
 
+function timeoutError() {
+  return new LlmError(504, 'The answer service took too long. Try again.');
+}
+
+function isTimeout(signal, timeoutSignal) {
+  return timeoutSignal.aborted && signal.reason === timeoutSignal.reason;
+}
+
+function abortError(signal) {
+  return signal.reason || new DOMException('The operation was aborted.', 'AbortError');
+}
+
+function raceWithSignal(promise, signal) {
+  if (signal.aborted) return Promise.reject(abortError(signal));
+  let onAbort;
+  const aborted = new Promise((_, reject) => {
+    onAbort = () => reject(abortError(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  return Promise.race([promise, aborted]).finally(() => signal.removeEventListener('abort', onAbort));
+}
+
+function waitWithAbort(milliseconds, signal) {
+  if (signal.aborted) return Promise.resolve(false);
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(true);
+    }, milliseconds);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+// Both one-shot and streaming calls use this retry and safe-error policy.
+async function retryOperation(operation, { signal, callerSignal, timeoutSignal }) {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    if (callerSignal?.aborted) return { aborted: true };
+    if (timeoutSignal.aborted) throw timeoutError();
+    if (signal.aborted) return { aborted: true };
+
+    let emittedOutput = false;
     try {
-      const response = await genai.models.generateContent({
-        model,
-        contents: user,
-        config: { systemInstruction: system, temperature: 0.2, maxOutputTokens: 1024 }
-      });
-      const answer = response.text?.trim();
-      if (!answer) throw new LlmError(502, 'The answer service returned an empty answer. Try again.');
-      return answer;
+      const value = await raceWithSignal(
+        Promise.resolve().then(() => operation(signal, () => { emittedOutput = true; })),
+        signal
+      );
+      return { value, aborted: false };
     } catch (error) {
+      if (timeoutSignal.aborted) throw timeoutError();
+      if (callerSignal?.aborted || (signal.aborted && !isTimeout(signal, timeoutSignal))) {
+        return { aborted: true };
+      }
       if (error instanceof LlmError) throw error;
-      const status = errorStatus(error);
-      const retryable = status === 429 || (status >= 500 && status < 600)
-        || /resource_exhausted|rate limit|too many requests/i.test(error.message || '');
-      if (retryable && attempt < MAX_RETRIES) {
-        await new Promise(resolve => setTimeout(resolve, RETRY_BASE_MS * (2 ** attempt)));
+
+      const { retryable } = classifyError(error);
+      if (retryable && !emittedOutput && attempt < MAX_RETRIES) {
+        const waited = await waitWithAbort(RETRY_BASE_MS * (2 ** attempt), signal);
+        if (!waited) {
+          if (timeoutSignal.aborted) throw timeoutError();
+          return { aborted: true };
+        }
         continue;
       }
       throw safeLlmError(error);
     }
   }
-
   throw new LlmError(503, 'The answer service failed after several attempts. Try again later.');
 }
 
-export async function* streamAnswer({ system, user, signal }) {
+function assertInput(system, user, operationName) {
   if (typeof system !== 'string' || typeof user !== 'string') {
-    throw new TypeError('streamAnswer expects system and user strings');
+    throw new TypeError(`${operationName} expects system and user strings`);
   }
+}
+
+export async function generateAnswer({ system, user, signal: callerSignal }) {
+  assertInput(system, user, 'generateAnswer');
+  const model = getModel();
   const genai = getClient();
-  const model = process.env.LLM_MODEL?.trim() || 'gemini-2.5-flash';
+  const operationSignal = makeOperationSignal(callerSignal);
+  const result = await retryOperation(async signal => {
+    const response = await genai.models.generateContent({
+      model,
+      contents: user,
+      config: { systemInstruction: system, temperature: 0.2, maxOutputTokens: 1024, abortSignal: signal }
+    });
+    const answer = response.text?.trim();
+    if (!answer) throw new LlmError(502, 'The answer service returned an empty answer. Try again.');
+    return answer;
+  }, operationSignal);
+  if (result.aborted) throw new LlmError(503, 'The answer request was cancelled.');
+  return result.value;
+}
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+function createTextQueue() {
+  const values = [];
+  const waiters = [];
+  let ended = false;
+  let failure;
+  return {
+    push(value) {
+      if (ended) return;
+      if (waiters.length) waiters.shift()({ value, done: false });
+      else values.push(value);
+    },
+    close() {
+      ended = true;
+      while (waiters.length) waiters.shift()({ done: true });
+    },
+    fail(error) {
+      failure = error;
+      ended = true;
+      while (waiters.length) waiters.shift()(Promise.reject(error));
+    },
+    async next() {
+      if (values.length) return { value: values.shift(), done: false };
+      if (failure) throw failure;
+      if (ended) return { done: true };
+      return new Promise(resolve => waiters.push(resolve));
+    },
+    [Symbol.asyncIterator]() { return this; }
+  };
+}
+
+export async function* streamAnswer({ system, user, signal: callerSignal }) {
+  assertInput(system, user, 'streamAnswer');
+  if (callerSignal?.aborted) return;
+  const model = getModel();
+  const genai = getClient();
+  const operationSignal = makeOperationSignal(callerSignal);
+  const queue = createTextQueue();
+
+  const task = retryOperation(async (signal, markOutput) => {
+    const responseStream = await genai.models.generateContentStream({
+      model,
+      contents: user,
+      config: { systemInstruction: system, temperature: 0.2, maxOutputTokens: 1024, abortSignal: signal }
+    });
     let emittedText = false;
-    try {
-      const responseStream = await genai.models.generateContentStream({
-        model,
-        contents: user,
-        config: { systemInstruction: system, temperature: 0.2, maxOutputTokens: 1024, abortSignal: signal }
-      });
-      for await (const response of responseStream) {
-        const delta = typeof response.text === 'string' ? response.text : '';
-        if (!delta) continue;
-        emittedText = true;
-        yield delta;
-      }
-      if (!emittedText) throw new LlmError(502, 'The answer service returned an empty answer. Try again.');
-      return;
-    } catch (error) {
-      if (error instanceof LlmError) throw error;
-      const status = errorStatus(error);
-      const retryable = status === 429 || (status >= 500 && status < 600)
-        || /resource_exhausted|rate limit|too many requests/i.test(error.message || '');
-      if (retryable && !emittedText && attempt < MAX_RETRIES) {
-        await new Promise(resolve => setTimeout(resolve, RETRY_BASE_MS * (2 ** attempt)));
-        continue;
-      }
-      throw safeLlmError(error);
+    for await (const response of responseStream) {
+      if (signal.aborted) return;
+      const delta = typeof response.text === 'string' ? response.text : '';
+      if (!delta) continue;
+      emittedText = true;
+      markOutput();
+      queue.push(delta);
     }
-  }
+    if (!emittedText) throw new LlmError(502, 'The answer service returned an empty answer. Try again.');
+  }, operationSignal)
+    .then(() => queue.close())
+    .catch(error => queue.fail(error));
 
-  throw new LlmError(503, 'The answer service failed after several attempts. Try again later.');
+  for await (const delta of queue) yield delta;
+  await task;
+}
+
+export function setLlmClientForTests(fakeClient) {
+  client = fakeClient;
 }

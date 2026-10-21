@@ -28,7 +28,7 @@ RepoMentor is an AI question-and-answer tool for GitHub repositories. It retriev
 
 2. Copy `server/.env.example` to `server/.env`. Set `MONGODB_URI` and `JWT_SECRET` (use a random secret with at least 32 characters). Set `GEMINI_API_KEY` to your Gemini API key. `GITHUB_TOKEN` is optional and only needed for private repositories or additional GitHub API quota.
 
-3. Configure the answer model in `server/.env`:
+3. Set `LLM_PROVIDER=gemini` and choose a required `LLM_MODEL` in `server/.env` (for example, `gemini-2.5-flash`). Configure the other values as needed:
 
    ```env
    LLM_PROVIDER=gemini
@@ -36,7 +36,39 @@ RepoMentor is an AI question-and-answer tool for GitHub repositories. It retriev
    CHUNKING_MODE=ast
    ```
 
-   `gemini` is currently the only supported provider. `LLM_MODEL` selects the Gemini generation model. `CHUNKING_MODE` accepts `ast` (the default) or `lines`; `lines` uses 60-line chunks for every file without symbol metadata. Add one ignore pattern per line to a repository's root `.repomentorignore`; lines starting with `#` are comments. `RETRIEVAL_MIN_SCORE` defaults to `0.5`; adjust it if development logs show the relevant code is frequently rejected or unrelated code is accepted. `ASK_RATE_LIMIT_PER_HOUR` defaults to `20` questions per user per hour.
+   `gemini` is currently the only supported provider. `LLM_MODEL` is required and selects the Gemini generation model. `CHUNKING_MODE` accepts `ast` (the default) or `lines`. Add one ignore pattern per line to a repository's root `.repomentorignore`; lines starting with `#` are comments.
+
+## Environment variables
+
+| Variable | Required | Purpose | Default or example |
+| --- | --- | --- | --- |
+| `PORT` | No | API server port | `4000` |
+| `MONGODB_URI` | Yes | MongoDB Atlas connection string | Set in `server/.env` |
+| `JWT_SECRET` | Yes | Signs and verifies login tokens | Random secret, at least 32 characters |
+| `JWT_EXPIRES_IN` | No | Login token lifetime | `1d` |
+| `CLIENT_ORIGIN` | No | Allowed browser origin for the API | `http://localhost:5173` |
+| `GITHUB_TOKEN` | No | GitHub API access and higher rate limits | Empty; public repositories work without it |
+| `GEMINI_API_KEY` | Needed for embeddings and answers | Authenticates requests to Gemini | Set your key in `server/.env` |
+| `LLM_PROVIDER` | Yes for answers | Selects the answer provider | `gemini` |
+| `LLM_MODEL` | Yes for answers | Selects the Gemini answer model | No default; set a model name |
+| `RETRIEVAL_MIN_SCORE` | No | Minimum similarity score before generating an answer | `0.78` |
+| `CHUNKING_MODE` | No | Selects AST-aware or line-based chunks | `ast` |
+| `ASK_RATE_LIMIT_PER_HOUR` | No | Ask requests allowed per user each hour | `20` |
+
+`RETRIEVAL_MIN_SCORE` defaults to `0.78` if it is missing, empty, or invalid. Adjust it using the retrieval scores printed in development. `ASK_RATE_LIMIT_PER_HOUR` defaults to `20` questions per user per hour.
+
+## How streaming works
+
+The client sends the question to `POST /api/repos/:id/ask/stream` with `fetch` and reads the response as it arrives. The server retrieves code first, sends the source list, then forwards answer text as token events. When generation finishes, the server cleans citations, saves the complete message, and sends a `done` event. The Stop button aborts that request; an interrupted answer stays visible as an unsaved partial answer.
+
+## Chunking modes
+
+The evaluation script in `server/scripts/eval.js` uses the same retrieval function for either chunking mode. Run it after indexing a repository in the chosen mode to compare retrieval quality.
+
+| Mode | How files are split | Symbol details | When to use it |
+| --- | --- | --- | --- |
+| `lines` | Every file uses roughly 60-line chunks | None | Simple baseline and comparison |
+| `ast` | JavaScript, TypeScript/TSX, and Python split around code structures; Markdown splits by headings; unsupported or invalid syntax falls back to line chunks | Adds symbol and kind when the parser recognizes code | Default for code-aware citations |
 
 4. In MongoDB Atlas, create the `chunk_vector_index` vector search index on the `chunks` collection, using the 768-dimensional `embedding` field with cosine similarity and a `repoId` filter field. The app does not create this index automatically.
 

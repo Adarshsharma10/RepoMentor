@@ -3,7 +3,7 @@ import AuthScreen from './components/AuthScreen.jsx';
 import CodeViewer from './components/CodeViewer.jsx';
 import MarkdownAnswer from './components/MarkdownAnswer.jsx';
 import { API_URL, apiRequest, userFacingError } from './api.js';
-import { consumeSseStream, removeTrailingIncompleteCitation } from './streaming.js';
+import { consumeSseStream, getStreamErrorMessage, removeTrailingIncompleteCitation, STREAM_ERROR_FALLBACK } from './streaming.js';
 import { parseCitationMarkers } from './citationMarkers.js';
 
 const SUGGESTED_QUESTIONS = [
@@ -119,6 +119,7 @@ function AnswerCard({ message, onSelectSource, selectedSource, isStreaming = fal
           {otherSources.map(source => <SourceButton key={source.n} source={source} onSelect={selectSource} />)}
         </details>}
       </section>}
+    {message.grounded === false && <p className="grounding-note">This answer isn't backed by code citations. Check it against the source.</p>}
     {message.stopped && <p className="conversation-empty">Stopped. This partial answer is not saved.</p>}
   </article>;
 }
@@ -280,6 +281,7 @@ export default function App() {
     const controller = new AbortController();
     askControllerRef.current = controller;
     let current = { question, answer: '', sources: [], createdAt: new Date().toISOString() };
+    let streamErrorMessage = '';
     setStreamingMessage({ repoId, message: current });
     setAskBusy(true);
     setAskError('');
@@ -308,12 +310,13 @@ export default function App() {
           setStreamingMessage({ repoId, message: current });
         } else if (event.event === 'done') {
           completed = true;
-          current = { ...current, _id: payload.messageId, answer: payload.answer };
+          current = { ...current, _id: payload.messageId, answer: payload.answer, grounded: payload.grounded };
           setAskMessages(messages => ({ ...messages, [repoId]: [...(messages[repoId] || []), current] }));
           setStreamingMessage(null);
           setAskQuestion('');
         } else if (event.event === 'error') {
-          throw new Error(payload.message || 'The model didn’t respond. Try again in a minute.');
+          streamErrorMessage = getStreamErrorMessage(event.data);
+          throw new Error(streamErrorMessage);
         }
       }, controller.signal);
       if (!completed && current.answer && askRequestIdRef.current === requestId) {
@@ -324,7 +327,10 @@ export default function App() {
         throw new Error('The answer stream ended before completion. Try again.');
       }
     } catch (error) {
-      if (askRequestIdRef.current === requestId && error.name !== 'AbortError') setAskError(userFacingError(error));
+      if (askRequestIdRef.current === requestId && error.name !== 'AbortError') {
+        const connectionFailed = !streamErrorMessage && (error instanceof TypeError || error.message === 'Failed to fetch');
+        setAskError(streamErrorMessage || (connectionFailed ? STREAM_ERROR_FALLBACK : userFacingError(error)));
+      }
     } finally {
       if (askRequestIdRef.current === requestId) {
         if (askControllerRef.current === controller) askControllerRef.current = null;

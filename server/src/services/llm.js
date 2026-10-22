@@ -4,6 +4,7 @@ const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 1000;
 const OVERALL_TIMEOUT_MS = 60_000;
 let client;
+let retryBaseMs = RETRY_BASE_MS;
 
 export class LlmError extends Error {
   constructor(status, publicMessage) {
@@ -26,11 +27,34 @@ function classifyError(error) {
 
 function safeLlmError(error) {
   const { status } = classifyError(error);
-  if (status === 429) return new LlmError(429, 'The answer service is rate limited. Try again shortly.');
+  if (status === 429) return new LlmError(429, 'The free model quota is used up for now. Try again later.');
+  if (status === 503 || /overload/i.test(String(error?.message || '')))
+    return new LlmError(503, 'The model is busy. Try again in a minute.');
   if (status >= 500 && status < 600) return new LlmError(503, 'The answer service is temporarily unavailable. Try again later.');
   if (status === 400) return new LlmError(400, 'The answer service could not process this request.');
   if (status === 401 || status === 403) return new LlmError(503, 'The Gemini API configuration is invalid. Check GEMINI_API_KEY.');
   return new LlmError(502, 'Could not generate an answer. Check the Gemini configuration and try again.');
+}
+
+function originalHttpStatus(error) {
+  const status = error?.status ?? error?.response?.status;
+  return Number.isInteger(status) ? status : 'unknown';
+}
+
+function logModelFailure(model, error) {
+  const name = String(error?.name || 'Error').replace(/[\r\n]/g, ' ');
+  const message = String(error?.message || '').slice(0, 200)
+    .replace(/AIza[A-Za-z0-9_-]+/g, '[redacted]')
+    .replace(/[\r\n]/g, ' ');
+  console.error(`[llm] model=${model} status=${originalHttpStatus(error)} name=${name} message=${message}`);
+}
+
+class FallbackEligibleError extends Error {
+  constructor(originalError) {
+    super('Primary model failed after retries');
+    this.name = 'FallbackEligibleError';
+    this.originalError = originalError;
+  }
 }
 
 function getModel() {
@@ -95,7 +119,7 @@ function waitWithAbort(milliseconds, signal) {
 }
 
 // Both one-shot and streaming calls use this retry and safe-error policy.
-async function retryOperation(operation, { signal, callerSignal, timeoutSignal }) {
+async function retryOperation(operation, { signal, callerSignal, timeoutSignal }, model) {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     if (callerSignal?.aborted) return { aborted: true };
     if (timeoutSignal.aborted) throw timeoutError();
@@ -116,18 +140,55 @@ async function retryOperation(operation, { signal, callerSignal, timeoutSignal }
       if (error instanceof LlmError) throw error;
 
       const { retryable } = classifyError(error);
+      logModelFailure(model, error);
       if (retryable && !emittedOutput && attempt < MAX_RETRIES) {
-        const waited = await waitWithAbort(RETRY_BASE_MS * (2 ** attempt), signal);
+        const waited = await waitWithAbort(retryBaseMs * (2 ** attempt), signal);
         if (!waited) {
           if (timeoutSignal.aborted) throw timeoutError();
           return { aborted: true };
         }
         continue;
       }
+      if (retryable && !emittedOutput) throw new FallbackEligibleError(error);
       throw safeLlmError(error);
     }
   }
   throw new LlmError(503, 'The answer service failed after several attempts. Try again later.');
+}
+
+function getFallbackModel(primaryModel) {
+  const fallback = process.env.LLM_FALLBACK_MODEL?.trim();
+  return fallback && fallback !== primaryModel ? fallback : undefined;
+}
+
+async function runFallback(operation, model, { signal, callerSignal, timeoutSignal }) {
+  if (callerSignal?.aborted || signal.aborted) return { aborted: true };
+  if (timeoutSignal.aborted) throw timeoutError();
+  try {
+    const value = await raceWithSignal(Promise.resolve().then(() => operation(signal, () => {})), signal);
+    return { value, aborted: false };
+  } catch (error) {
+    if (timeoutSignal.aborted) throw timeoutError();
+    if (callerSignal?.aborted || (signal.aborted && !isTimeout(signal, timeoutSignal))) return { aborted: true };
+    if (error instanceof LlmError) throw error;
+    logModelFailure(model, error);
+    throw safeLlmError(error);
+  }
+}
+
+async function generateWithFallback(operation, primaryModel, signals) {
+  try {
+    return await retryOperation(operation(primaryModel), signals, primaryModel);
+  } catch (error) {
+    const fallbackModel = getFallbackModel(primaryModel);
+    if (!(error instanceof FallbackEligibleError) || !fallbackModel) {
+      if (error instanceof FallbackEligibleError) throw safeLlmError(error.originalError);
+      throw error;
+    }
+    const result = await runFallback(operation(fallbackModel), fallbackModel, signals);
+    if (!result.aborted) console.info(`[llm] fallback answered model=${fallbackModel}`);
+    return result;
+  }
 }
 
 function assertInput(system, user, operationName) {
@@ -141,16 +202,17 @@ export async function generateAnswer({ system, user, signal: callerSignal }) {
   const model = getModel();
   const genai = getClient();
   const operationSignal = makeOperationSignal(callerSignal);
-  const result = await retryOperation(async signal => {
-    const response = await genai.models.generateContent({
-      model,
+  const result = await generateWithFallback(currentModel => signal => {
+    return genai.models.generateContent({
+      model: currentModel,
       contents: user,
       config: { systemInstruction: system, temperature: 0.2, maxOutputTokens: 1024, abortSignal: signal }
+    }).then(response => {
+      const answer = response.text?.trim();
+      if (!answer) throw new LlmError(502, 'The answer service returned an empty answer. Try again.');
+      return answer;
     });
-    const answer = response.text?.trim();
-    if (!answer) throw new LlmError(502, 'The answer service returned an empty answer. Try again.');
-    return answer;
-  }, operationSignal);
+  }, model, operationSignal);
   if (result.aborted) throw new LlmError(503, 'The answer request was cancelled.');
   return result.value;
 }
@@ -193,9 +255,9 @@ export async function* streamAnswer({ system, user, signal: callerSignal }) {
   const operationSignal = makeOperationSignal(callerSignal);
   const queue = createTextQueue();
 
-  const task = retryOperation(async (signal, markOutput) => {
+  const streamOperation = currentModel => async (signal, markOutput) => {
     const responseStream = await genai.models.generateContentStream({
-      model,
+      model: currentModel,
       contents: user,
       config: { systemInstruction: system, temperature: 0.2, maxOutputTokens: 1024, abortSignal: signal }
     });
@@ -209,7 +271,8 @@ export async function* streamAnswer({ system, user, signal: callerSignal }) {
       queue.push(delta);
     }
     if (!emittedText) throw new LlmError(502, 'The answer service returned an empty answer. Try again.');
-  }, operationSignal)
+  };
+  const task = generateWithFallback(streamOperation, model, operationSignal)
     .then(() => queue.close())
     .catch(error => queue.fail(error));
 
@@ -217,6 +280,7 @@ export async function* streamAnswer({ system, user, signal: callerSignal }) {
   await task;
 }
 
-export function setLlmClientForTests(fakeClient) {
+export function setLlmClientForTests(fakeClient, options = {}) {
   client = fakeClient;
+  retryBaseMs = options.retryBaseMs ?? RETRY_BASE_MS;
 }

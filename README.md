@@ -55,6 +55,7 @@ RepoMentor is an AI question-and-answer tool for GitHub repositories. It retriev
 | `GEMINI_API_KEY` | Needed for embeddings and answers | Authenticates requests to Gemini | Set your key in `server/.env` |
 | `LLM_PROVIDER` | Yes for answers | Selects the answer provider | `gemini` |
 | `LLM_MODEL` | Yes for answers | Selects the Gemini answer model | No default; set a model name |
+| `LLM_FALLBACK_MODEL` | No | Optional model tried once after the main model exhausts retries on a quota or server error, before any streamed text is sent | Empty disables fallback |
 | `RETRIEVAL_MIN_SCORE` | No | Minimum similarity score before generating an answer | `0.78` |
 | `CHUNKING_MODE` | No | Selects AST-aware or line-based chunks | `ast` |
 | `ASK_RATE_LIMIT_PER_HOUR` | No | Ask requests allowed per user each hour | `20` |

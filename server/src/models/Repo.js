@@ -6,6 +6,7 @@ const repoSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   url: { type: String, required: true },
   defaultBranch: { type: String, default: '' },
+  overview: { type: String, default: '', maxlength: 4000 },
   status: { type: String, enum: ['pending', 'indexing', 'ready', 'failed'], default: 'pending' },
   errorMessage: { type: String, default: '' },
   fileCount: { type: Number, default: 0, min: 0 },

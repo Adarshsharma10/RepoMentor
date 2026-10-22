@@ -5,7 +5,7 @@ function BrandMark() {
   return <span className="brand-mark" aria-hidden="true">R</span>;
 }
 
-export default function AuthScreen({ onAuthenticated }) {
+export default function AuthScreen({ onAuthenticated, healthState }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [error, setError] = useState('');
@@ -44,6 +44,8 @@ export default function AuthScreen({ onAuthenticated }) {
   }
 
   return <main className="auth-page">
+    {healthState === 'checking' && <p className="health-banner" role="status"><span className="loading-spinner" aria-hidden="true" />Waking up the server. Free hosting can take up to a minute.</p>}
+    {healthState === 'failed' && <p className="health-banner health-banner-error" role="alert">The server is not responding. Try again in a minute.</p>}
     <header className="auth-header"><a className="brand" href="#home"><BrandMark /><span>RepoMentor</span></a><span className="auth-header-note">Understand your codebase</span></header>
     <div className="auth-layout">
       <section className="auth-intro" aria-labelledby="auth-title">

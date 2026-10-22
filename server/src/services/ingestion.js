@@ -6,7 +6,6 @@ import { chunkFile } from './chunker.js';
 import { isRepoPathIgnored, parseRepoIgnore } from './repomentorIgnore.js';
 
 const MAX_FILES = 500;
-const MAX_CHUNKS = 1500;
 const MAX_FILE_BYTES = 200 * 1024;
 const MAX_EMBEDDING_TEXT_LENGTH = 4000;
 const EXCLUDED_DIRECTORIES = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
@@ -31,12 +30,18 @@ const TEXT_FILENAMES = new Map([
   ['.dockerignore', 'text'], ['.editorconfig', 'text'], ['.npmrc', 'text'], ['.nvmrc', 'text']
 ]);
 
-export class IngestionError extends Error {
+class IngestionError extends Error {
   constructor(status, message) {
     super(message);
     this.status = status;
     this.publicMessage = message;
   }
+}
+
+export function resolveMaxChunks(configuredValue) {
+  if (typeof configuredValue !== 'string' || configuredValue.trim() === '') return 400;
+  const value = Number(configuredValue);
+  return Number.isInteger(value) && value > 0 ? value : 400;
 }
 
 function createOctokit() {
@@ -129,12 +134,58 @@ async function readIgnoreRules(octokit, owner, repo, tree) {
   return parseRepoIgnore(Buffer.from(response.data.content, 'base64').toString('utf8'));
 }
 
+async function readBlobText(octokit, owner, repo, file) {
+  const response = await octokit.rest.git.getBlob({ owner, repo, file_sha: file.sha });
+  return Buffer.from(response.data.content, 'base64').toString('utf8');
+}
+
+export function buildRepositoryOverview({ readme = '', packageJson = '', folders = [] }) {
+  const sections = [];
+  if (readme) sections.push(`README:\n${readme.slice(0, 2500)}`);
+  if (packageJson) {
+    try {
+      const parsed = JSON.parse(packageJson);
+      const details = [];
+      if (parsed.name) details.push(`Name: ${parsed.name}`);
+      if (parsed.description) details.push(`Description: ${parsed.description}`);
+      if (parsed.scripts && typeof parsed.scripts === 'object') {
+        details.push(`Scripts: ${Object.entries(parsed.scripts).map(([name, script]) => `${name}: ${script}`).join('; ')}`);
+      }
+      const dependencyNames = [...new Set([
+        ...Object.keys(parsed.dependencies || {}),
+        ...Object.keys(parsed.devDependencies || {}),
+        ...Object.keys(parsed.peerDependencies || {}),
+        ...Object.keys(parsed.optionalDependencies || {})
+      ])].sort();
+      if (dependencyNames.length) details.push(`Dependencies: ${dependencyNames.join(', ')}`);
+      if (details.length) sections.push(`Package:\n${details.join('\n')}`);
+    } catch {
+      // An invalid package manifest should not prevent repository ingestion.
+    }
+  }
+  if (folders.length) sections.push(`Top-level folders: ${folders.join(', ')}`);
+  return sections.join('\n\n').slice(0, 4000);
+}
+
+async function createRepositoryOverview(octokit, owner, repo, tree) {
+  const readme = tree.find(file => file.type === 'blob' && /^README(?:\.[^/]+)?$/i.test(file.path));
+  const packageJson = tree.find(file => file.type === 'blob' && file.path === 'package.json');
+  const [readmeText, packageText] = await Promise.all([
+    readme ? readBlobText(octokit, owner, repo, readme) : '',
+    packageJson ? readBlobText(octokit, owner, repo, packageJson) : ''
+  ]);
+  const folders = [...new Set(tree.filter(file => file.type === 'tree' && !file.path.includes('/'))
+    .map(file => file.path))].sort();
+  return buildRepositoryOverview({ readme: readmeText, packageJson: packageText, folders });
+}
+
 export async function ingestRepository(repoDocument) {
   const repoId = repoDocument._id;
   const userId = repoDocument.userId;
   await Repo.updateOne({ _id: repoId }, { $set: { status: 'indexing', errorMessage: '' } });
 
   try {
+    const maxChunks = resolveMaxChunks(process.env.MAX_CHUNKS_PER_REPO);
     const chunkingMode = getChunkingMode();
     const octokit = createOctokit();
     const repositoryResponse = await octokit.rest.repos.get({ owner: repoDocument.owner, repo: repoDocument.name });
@@ -151,6 +202,7 @@ export async function ingestRepository(repoDocument) {
     }
 
     const ignoreRules = await readIgnoreRules(octokit, repoDocument.owner, repoDocument.name, treeResponse.data.tree);
+    const overview = await createRepositoryOverview(octokit, repoDocument.owner, repoDocument.name, treeResponse.data.tree);
     const files = treeResponse.data.tree.filter(file => isIndexableFile(file)
       && !isRepoPathIgnored(file.path, ignoreRules));
     if (files.length > MAX_FILES) {
@@ -163,8 +215,8 @@ export async function ingestRepository(repoDocument) {
       if (chunkLimitError) throw chunkLimitError;
       const result = await fetchAndChunkFile(octokit, repoDocument.owner, repoDocument.name, file, chunkingMode);
       if (chunkLimitError) return null;
-      if (result && chunkCount + result.length > MAX_CHUNKS) {
-        chunkLimitError = new IngestionError(413, `Repository is too large to index: it has more than ${MAX_CHUNKS} chunks.`);
+      if (result && chunkCount + result.length > maxChunks) {
+        chunkLimitError = new IngestionError(413, 'This repository is too large for the demo. Try a smaller one.');
         throw chunkLimitError;
       }
       if (result) chunkCount += result.length;
@@ -172,8 +224,8 @@ export async function ingestRepository(repoDocument) {
     });
     const indexedFiles = fileChunks.filter(result => result !== null);
     const chunks = indexedFiles.flat().map(chunk => ({ ...chunk, repoId, userId }));
-    if (chunks.length > MAX_CHUNKS) {
-      throw new IngestionError(413, `Repository is too large to index: it has more than ${MAX_CHUNKS} chunks.`);
+    if (chunks.length > maxChunks) {
+      throw new IngestionError(413, 'This repository is too large for the demo. Try a smaller one.');
     }
 
     const embeddingTexts = chunks.map(chunk => {
@@ -188,7 +240,7 @@ export async function ingestRepository(repoDocument) {
     await Chunk.deleteMany({ repoId, userId });
     if (chunks.length) await Chunk.insertMany(chunks, { ordered: true });
     return await Repo.findByIdAndUpdate(repoId, {
-      $set: { defaultBranch, status: 'ready', errorMessage: '', fileCount: indexedFiles.length, chunkCount: chunks.length }
+      $set: { defaultBranch, overview, status: 'ready', errorMessage: '', fileCount: indexedFiles.length, chunkCount: chunks.length }
     }, { new: true });
   } catch (error) {
     await Chunk.deleteMany({ repoId, userId });

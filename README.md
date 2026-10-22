@@ -7,6 +7,7 @@ RepoMentor is an AI question-and-answer tool for GitHub repositories. It retriev
 - React + Vite client with account registration and sign-in.
 - Express API with JWT authentication and MongoDB-backed users.
 - Add a GitHub repository, skip paths listed in its root `.repomentorignore`, and split supported source files into line-numbered chunks. JavaScript, TypeScript/TSX, and Python use AST-aware chunks by default; other files use line-based chunks.
+- Save a compact overview from the repository README, package metadata, and root folders so broad project questions have useful context.
 - Embed code and questions with Gemini, then search chunks with MongoDB Atlas Vector Search.
 - Ask questions about a ready repository, see plain-text answers with clickable citations, and review the latest 20 saved questions and answers.
 - Repository ownership checks, request validation, rate limits, and safe public error messages.
@@ -51,6 +52,7 @@ RepoMentor is an AI question-and-answer tool for GitHub repositories. It retriev
 | `VITE_API_URL` | No | API base URL baked into the client build | Empty for the local `/api` development proxy |
 | `REGISTRATION_OPEN` | No | Enables account registration | `true`; set `false` to close registration |
 | `GLOBAL_DAILY_ASK_LIMIT` | No | Maximum answer-model calls across the whole server per UTC day | `200` |
+| `MAX_CHUNKS_PER_REPO` | No | Maximum indexed chunks allowed per repository | `400` |
 | `GITHUB_TOKEN` | No | GitHub API access and higher rate limits | Empty; public repositories work without it |
 | `GEMINI_API_KEY` | Needed for embeddings and answers | Authenticates requests to Gemini | Set your key in `server/.env` |
 | `LLM_PROVIDER` | Yes for answers | Selects the answer provider | `gemini` |
@@ -77,16 +79,12 @@ The evaluation script in `server/scripts/eval.js` uses the same retrieval functi
 
 ## Deployment
 
-Set the server variables in the hosting provider's secret/environment settings. At minimum, production needs `NODE_ENV=production`, `PORT`, `MONGODB_URI`, a 32-character-or-longer `JWT_SECRET`, and a comma-separated `CORS_ORIGIN` containing the exact deployed client origins. Configure `GEMINI_API_KEY` and `LLM_MODEL` to enable indexing and answers. `VITE_API_URL` is a client build-time setting pointing to the server base URL; it is not read by the running server. Keep secrets out of image layers and source control.
+Set the server variables in the hosting provider's secret/environment settings. At minimum, production needs `NODE_ENV=production`, `PORT`, `MONGODB_URI`, a 32-character-or-longer `JWT_SECRET`, and a comma-separated `CORS_ORIGIN` containing the exact deployed client origins. Configure `GEMINI_API_KEY` and `LLM_MODEL` to enable indexing and answers. `VITE_API_URL` is a client build-time setting pointing to the server base URL; it is not read by the running server. Keep secrets out of source control.
 
 | Component | Build command | Start / publish |
 | --- | --- | --- |
 | Server on Node | `npm ci --omit=dev` | `npm start --workspace server` |
 | Client | `npm ci` then `npm run build --workspace client` (set `VITE_API_URL` before building) | Publish the generated `client/dist` directory with a static host |
-| Server in Docker | `docker compose build server` | Create `server/.env`, then run `docker compose up server` |
-
-For local Docker use, copy `server/.env.example` to `server/.env` and fill in the values for your database and model provider. `docker-compose.yml` reads that file; the example file itself contains no credentials.
-
 4. In MongoDB Atlas, create the `chunk_vector_index` vector search index on the `chunks` collection, using the 768-dimensional `embedding` field with cosine similarity and a `repoId` filter field. The app does not create this index automatically.
 
 5. Start the API and client from the repository root:

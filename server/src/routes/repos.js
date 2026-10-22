@@ -230,7 +230,7 @@ router.post('/:id/ask', askLimiter, async (req, res, next) => {
     if (!question) return;
     let prepared;
     try {
-      prepared = await prepareAnswer(repo._id, question);
+      prepared = await prepareAnswer(repo._id, question, repo.overview);
     } catch (error) {
       return next(withVectorIndexMessage(error));
     }
@@ -300,7 +300,7 @@ router.post('/:id/ask/stream', askLimiter, async (req, res, next) => {
 
     let prepared;
     try {
-      prepared = await prepareAnswer(repo._id, question);
+      prepared = await prepareAnswer(repo._id, question, repo.overview);
     } catch (error) {
       const streamError = withVectorIndexMessage(error);
       if (!beginStream()) return;

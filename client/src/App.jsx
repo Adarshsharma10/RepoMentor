@@ -109,8 +109,7 @@ function AnswerCard({ message, onSelectSource, selectedSource, isStreaming = fal
     {isStreaming && sources.length > 0
       ? <section className="answer-sources" aria-label="Sources"><h3>Sources</h3>{sources.map(source => <SourceButton key={source.n} source={source} cited={citations.has(source.n)} onSelect={selectSource} />)}</section>
       : citedSources.length === 0
-      ? (isStreaming ? null
-        : <p className="conversation-empty">No relevant code found for this question.</p>)
+      ? null
       : <section className="answer-sources" aria-label="Sources">
         <h3>Sources</h3>
         {citedSources.map(source => <SourceButton key={source.n} source={source} cited onSelect={selectSource} />)}
@@ -151,10 +150,43 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [selectedSource, setSelectedSource] = useState(null);
   const [mobileViewerOpen, setMobileViewerOpen] = useState(false);
+  const [healthState, setHealthState] = useState('checking');
   const askControllerRef = useRef(null);
   const askRequestIdRef = useRef(0);
 
   const selectedRepo = repos.find(repo => repo._id === selectedRepoId) || null;
+
+  useEffect(() => {
+    let current = true;
+    let retryTimer;
+    const deadline = Date.now() + 90_000;
+    const checkHealth = async () => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        if (current) setHealthState('failed');
+        return;
+      }
+      retryTimer = window.setTimeout(checkHealth, Math.min(3000, remaining));
+      try {
+        const response = await fetch(`${API_URL}/api/health`, { signal: AbortSignal.timeout(Math.min(2500, remaining)) });
+        if (!response.ok) throw new Error('Health check failed');
+        if (current) {
+          window.clearTimeout(retryTimer);
+          setHealthState('ready');
+        }
+      } catch {
+        if (!current) return;
+        if (Date.now() >= deadline) {
+          setHealthState('failed');
+        }
+      }
+    };
+    checkHealth();
+    return () => {
+      current = false;
+      window.clearTimeout(retryTimer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -403,7 +435,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [selectedSource]);
 
-  if (!user) return <AuthScreen onAuthenticated={setUser} />;
+  if (!user) return <AuthScreen onAuthenticated={setUser} healthState={healthState} />;
 
   const messages = selectedRepo ? askMessages[selectedRepo._id] || [] : [];
 
@@ -423,6 +455,8 @@ export default function App() {
     </aside>
 
     <main className="main-area">
+      {healthState === 'checking' && <p className="health-banner" role="status"><span className="loading-spinner" aria-hidden="true" />Waking up the server. Free hosting can take up to a minute.</p>}
+      {healthState === 'failed' && <p className="health-banner health-banner-error" role="alert">The server is not responding. Try again in a minute.</p>}
       {reposError && <p className="inline-error" role="alert">{reposError}</p>}
       {repoMessage && <p className="inline-status" role="status">{repoMessage}</p>}
       {!selectedRepo ? <section className="empty-workspace">
@@ -441,7 +475,7 @@ export default function App() {
         </header>
 
         {selectedRepo.status === 'failed' && <section className="status-explanation" role="status"><StatusIcon status="failed" /><div><h2>Indexing failed</h2><p>{selectedRepo.errorMessage || 'The repository could not be indexed.'} Delete this repository and add it again after fixing the issue.</p></div></section>}
-        {(selectedRepo.status === 'indexing' || selectedRepo.status === 'pending') && <section className="status-explanation" role="status"><StatusIcon status={selectedRepo.status} /><div><h2>{selectedRepo.status === 'indexing' ? 'Indexing repository' : 'Waiting to index'}</h2><p>RepoMentor is preparing the repository code. You can ask questions when indexing is ready.</p></div></section>}
+        {(selectedRepo.status === 'indexing' || selectedRepo.status === 'pending') && <section className="status-explanation" role="status">{selectedRepo.status === 'indexing' ? <span className="loading-spinner indexing-spinner" aria-hidden="true" /> : <StatusIcon status={selectedRepo.status} />}<div><h2>{selectedRepo.status === 'indexing' ? 'Indexing repository' : 'Waiting to index'}</h2><p>{selectedRepo.status === 'indexing' ? 'Indexing can take up to a minute for larger repositories.' : 'RepoMentor is preparing the repository code. You can ask questions when indexing is ready.'}</p></div></section>}
 
         {selectedRepo.status === 'ready' && <>
           <div className="workspace-tabs" role="tablist" aria-label="Repository tools">

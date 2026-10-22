@@ -127,3 +127,53 @@ test('LLM_MODEL remains required', async () => {
     error instanceof LlmError && error.publicMessage === 'LLM_MODEL is required. Set it in server/.env.'
   ));
 });
+
+test('generateAnswer retries a 503 then succeeds without using fallback', async () => {
+  delete process.env.LLM_FALLBACK_MODEL;
+  const calls = [];
+  setLlmClientForTests({ models: { generateContent: async ({ model }) => {
+    calls.push(model);
+    if (calls.length === 1) throw Object.assign(new Error('temporary failure'), { status: 503 });
+    return { text: 'primary answer' };
+  } } }, { retryBaseMs: 1 });
+
+  assert.equal(await generateAnswer({ system: 'rules', user: 'question' }), 'primary answer');
+  assert.deepEqual(calls, ['main-model', 'main-model']);
+});
+
+test('streamAnswer aborts during retry wait without making another model call', async () => {
+  let calls = 0;
+  setLlmClientForTests({ models: { generateContentStream: async () => {
+    calls += 1;
+    return {
+      [Symbol.asyncIterator]() {
+        return { next: async () => { throw quotaError(); } };
+      }
+    };
+  } } }, { retryBaseMs: 500 });
+  const controller = new AbortController();
+  const answer = (async () => {
+    const deltas = [];
+    for await (const delta of streamAnswer({ system: 'rules', user: 'question', signal: controller.signal })) deltas.push(delta);
+    return deltas;
+  })();
+
+  await new Promise(resolve => setTimeout(resolve, 20));
+  controller.abort();
+  assert.deepEqual(await answer, []);
+  assert.equal(calls, 1);
+});
+
+test('numbers in an error message do not set a status or trigger retries', async () => {
+  delete process.env.LLM_FALLBACK_MODEL;
+  let calls = 0;
+  setLlmClientForTests({ models: { generateContent: async () => {
+    calls += 1;
+    throw new Error('the model mentioned 503 in its message');
+  } } });
+
+  await assert.rejects(generateAnswer({ system: 'rules', user: 'question' }), error => (
+    error instanceof LlmError && error.status === 502
+  ));
+  assert.equal(calls, 1);
+});

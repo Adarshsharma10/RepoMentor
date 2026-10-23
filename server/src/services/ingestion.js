@@ -39,9 +39,9 @@ class IngestionError extends Error {
 }
 
 export function resolveMaxChunks(configuredValue) {
-  if (typeof configuredValue !== 'string' || configuredValue.trim() === '') return 400;
+  if (typeof configuredValue !== 'string' || configuredValue.trim() === '') return 150;
   const value = Number(configuredValue);
-  return Number.isInteger(value) && value > 0 ? value : 400;
+  return Number.isInteger(value) && value > 0 ? value : 150;
 }
 
 function createOctokit() {

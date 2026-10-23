@@ -4,6 +4,8 @@ const MODEL = 'gemini-embedding-001';
 const VECTOR_DIMENSIONS = 768;
 const MAX_BATCH_SIZE = 20;
 const REQUEST_INTERVAL_MS = 1000;
+const TOKEN_LIMIT_PER_MINUTE = 25000;
+const TOKEN_WINDOW_MS = 60000;
 const MAX_ATTEMPTS = 5;
 const RETRY_BASE_MS = 1000;
 const RATE_LIMIT_RETRY_BASE_MS = 5000;
@@ -11,6 +13,24 @@ const MAX_RETRY_DELAY_MS = 60000;
 
 let client;
 let nextRequestAt = 0;
+
+export function createTokenPacer({ limit = TOKEN_LIMIT_PER_MINUTE, windowMs = TOKEN_WINDOW_MS, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  const requests = [];
+  return {
+    async waitForTokens(tokens) {
+      const estimate = Math.max(0, Math.ceil(tokens));
+      if (estimate > limit) throw new RangeError(`Estimated embedding request exceeds the ${limit}-token pacing window.`);
+      while (requests.length && now() - requests[0].at >= windowMs) requests.shift();
+      while (requests.length && requests.reduce((total, request) => total + request.tokens, 0) + estimate > limit) {
+        await sleep(Math.max(1, requests[0].at + windowMs - now()));
+        while (requests.length && now() - requests[0].at >= windowMs) requests.shift();
+      }
+      requests.push({ at: now(), tokens: estimate });
+    }
+  };
+}
+
+const tokenPacer = createTokenPacer();
 
 class EmbeddingError extends Error {
   constructor(status, message) {
@@ -85,8 +105,13 @@ function normalizeVector(values) {
 
 async function requestEmbeddings(contents, taskType) {
   const genai = getClient();
+  const estimatedTokens = contents.reduce((total, text) => total + Math.ceil(text.length / 4), 0);
+  if (estimatedTokens > TOKEN_LIMIT_PER_MINUTE) {
+    throw new EmbeddingError(413, 'The embedding request is too large. Split it into smaller texts and try again.');
+  }
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     await waitForRequestSlot();
+    await tokenPacer.waitForTokens(estimatedTokens);
     try {
       const response = await genai.models.embedContent({
         model: MODEL,
@@ -118,8 +143,17 @@ export async function embedDocuments(texts) {
   if (texts.length === 0) return [];
 
   const vectors = [];
-  for (let start = 0; start < texts.length; start += MAX_BATCH_SIZE) {
-    const batch = texts.slice(start, start + MAX_BATCH_SIZE);
+  for (let start = 0; start < texts.length;) {
+    const batch = [];
+    let batchTokens = 0;
+    while (start < texts.length && batch.length < MAX_BATCH_SIZE) {
+      const text = texts[start];
+      const textTokens = Math.ceil(text.length / 4);
+      if (batch.length && batchTokens + textTokens > TOKEN_LIMIT_PER_MINUTE) break;
+      batch.push(text);
+      batchTokens += textTokens;
+      start += 1;
+    }
     vectors.push(...await requestEmbeddings(batch, 'RETRIEVAL_DOCUMENT'));
   }
   return vectors;

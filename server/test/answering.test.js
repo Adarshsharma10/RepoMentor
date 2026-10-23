@@ -68,10 +68,10 @@ test('refuses low-score specific questions and broad questions without an overvi
   });
 });
 
-test('uses a configurable 400 chunk safety limit by default', () => {
-  assert.equal(resolveMaxChunks(undefined), 400);
-  assert.equal(resolveMaxChunks(''), 400);
-  assert.equal(resolveMaxChunks('not-a-number'), 400);
+test('uses a configurable 150 chunk safety limit by default', () => {
+  assert.equal(resolveMaxChunks(undefined), 150);
+  assert.equal(resolveMaxChunks(''), 150);
+  assert.equal(resolveMaxChunks('not-a-number'), 150);
   assert.equal(resolveMaxChunks('250'), 250);
 });
 

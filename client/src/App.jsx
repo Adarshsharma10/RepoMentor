@@ -475,7 +475,7 @@ export default function App() {
         </header>
 
         {selectedRepo.status === 'failed' && <section className="status-explanation" role="status"><StatusIcon status="failed" /><div><h2>Indexing failed</h2><p>{selectedRepo.errorMessage || 'The repository could not be indexed.'} Delete this repository and add it again after fixing the issue.</p></div></section>}
-        {(selectedRepo.status === 'indexing' || selectedRepo.status === 'pending') && <section className="status-explanation" role="status">{selectedRepo.status === 'indexing' ? <span className="loading-spinner indexing-spinner" aria-hidden="true" /> : <StatusIcon status={selectedRepo.status} />}<div><h2>{selectedRepo.status === 'indexing' ? 'Indexing repository' : 'Waiting to index'}</h2><p>{selectedRepo.status === 'indexing' ? 'Indexing can take up to a minute for larger repositories.' : 'RepoMentor is preparing the repository code. You can ask questions when indexing is ready.'}</p></div></section>}
+        {(selectedRepo.status === 'indexing' || selectedRepo.status === 'pending') && <section className="status-explanation" role="status">{selectedRepo.status === 'indexing' ? <span className="loading-spinner indexing-spinner" aria-hidden="true" /> : <StatusIcon status={selectedRepo.status} />}<div><h2>{selectedRepo.status === 'indexing' ? 'Indexing repository' : 'Waiting to index'}</h2><p>{selectedRepo.status === 'indexing' ? 'Indexing can take a few minutes because of free-tier limits.' : 'RepoMentor is preparing the repository code. You can ask questions when indexing is ready.'}</p></div></section>}
 
         {selectedRepo.status === 'ready' && <>
           <div className="workspace-tabs" role="tablist" aria-label="Repository tools">

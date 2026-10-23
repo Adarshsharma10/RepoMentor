@@ -1,10 +1,15 @@
 import { GoogleGenAI } from '@google/genai';
 
-const MAX_RETRIES = 2;
-const RETRY_BASE_MS = 1000;
 const OVERALL_TIMEOUT_MS = 60_000;
+const DEFAULT_OVERLOAD_WAIT_MS = 2000;
+const DEFAULT_PER_MINUTE_WAIT_MS = 20_000;
+const GENERIC_RETRY_BASE_MS = 1000;
+const QUOTA_MESSAGE = 'The free model quota is used up for now. Cached questions still work.';
 let client;
-let retryBaseMs = RETRY_BASE_MS;
+let waitForRetry = waitWithAbort;
+let overloadWaitMs = DEFAULT_OVERLOAD_WAIT_MS;
+let perMinuteWaitMs = DEFAULT_PER_MINUTE_WAIT_MS;
+let genericRetryBaseMs = GENERIC_RETRY_BASE_MS;
 
 export class LlmError extends Error {
   constructor(status, publicMessage) {
@@ -20,16 +25,68 @@ function errorStatus(error) {
     .find(value => Number.isInteger(value)) || 0;
 }
 
+function collectQuotaDetails(error) {
+  const quotaIds = new Set();
+  const quotaMetrics = new Set();
+  const seen = new Set();
+  const visit = (value, depth = 0) => {
+    if (!value || typeof value !== 'object' || depth > 7 || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(item => visit(item, depth + 1));
+      return;
+    }
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item === 'string' && /quotaid/i.test(key)) quotaIds.add(item);
+      if (typeof item === 'string' && /quotametric/i.test(key)) quotaMetrics.add(item);
+      visit(item, depth + 1);
+    }
+  };
+  visit(error?.details);
+  visit(error?.errorDetails);
+  visit(error?.error?.details);
+  visit(error?.response?.data?.error?.details);
+  visit(error?.response?.data?.details);
+  visit(error?.response?.body?.error?.details);
+
+  const message = String(error?.message || '');
+  for (const match of message.matchAll(/quotaId["']?\s*[=:]\s*["']?([^\s,"'}]+)/gi)) quotaIds.add(match[1]);
+  for (const match of message.matchAll(/quotaMetric["']?\s*[=:]\s*["']?([^\s,"'}]+)/gi)) quotaMetrics.add(match[1]);
+  return { quotaIds: [...quotaIds], quotaMetrics: [...quotaMetrics] };
+}
+
+function quotaText(error) {
+  const { quotaIds, quotaMetrics } = collectQuotaDetails(error);
+  return [
+    ...quotaIds,
+    ...quotaMetrics,
+    JSON.stringify(error?.details || ''),
+    JSON.stringify(error?.errorDetails || ''),
+    JSON.stringify(error?.error?.details || ''),
+    JSON.stringify(error?.response?.data?.error?.details || ''),
+    JSON.stringify(error?.response?.data?.details || ''),
+    JSON.stringify(error?.response?.body?.error?.details || ''),
+    String(error?.message || '')
+  ].join(' ');
+}
+
 function classifyError(error) {
   const status = errorStatus(error);
-  return { status, retryable: status === 429 || (status >= 500 && status < 600) };
+  const text = quotaText(error);
+  const normalizedQuotaText = text.replace(/[^a-z]/gi, '').toLowerCase();
+  return {
+    status,
+    perDay: normalizedQuotaText.includes('perday'),
+    perMinute: normalizedQuotaText.includes('perminute'),
+    overloaded: status === 503 || /high demand|overloaded/i.test(text),
+    retryable: status === 429 || (status >= 500 && status < 600) || /high demand|overloaded/i.test(text)
+  };
 }
 
 function safeLlmError(error) {
-  const { status } = classifyError(error);
-  if (status === 429) return new LlmError(429, 'The free model quota is used up for now. Try again later.');
-  if (status === 503 || /overload/i.test(String(error?.message || '')))
-    return new LlmError(503, 'The model is busy. Try again in a minute.');
+  const { status, overloaded } = classifyError(error);
+  if (status === 429) return new LlmError(429, QUOTA_MESSAGE);
+  if (status === 503 || overloaded) return new LlmError(503, 'The model is busy. Try again in a minute.');
   if (status >= 500 && status < 600) return new LlmError(503, 'The answer service is temporarily unavailable. Try again later.');
   if (status === 400) return new LlmError(400, 'The answer service could not process this request.');
   if (status === 401 || status === 403) return new LlmError(503, 'The Gemini API configuration is invalid. Check GEMINI_API_KEY.');
@@ -41,17 +98,26 @@ function originalHttpStatus(error) {
   return Number.isInteger(status) ? status : 'unknown';
 }
 
-function logModelFailure(model, error) {
-  const name = String(error?.name || 'Error').replace(/[\r\n]/g, ' ');
-  const message = String(error?.message || '').slice(0, 200)
+function redactLogValue(value) {
+  return String(value ?? '').slice(0, 300)
     .replace(/AIza[A-Za-z0-9_-]+/g, '[redacted]')
-    .replace(/[\r\n]/g, ' ');
-  console.error(`[llm] model=${model} status=${originalHttpStatus(error)} name=${name} message=${message}`);
+    .replace(/[\r\n\t]/g, ' ');
+}
+
+function logModelFailure(model, error) {
+  const { quotaIds, quotaMetrics } = collectQuotaDetails(error);
+  const quota = [
+    ...quotaIds.map(value => `quotaId=${redactLogValue(value)}`),
+    ...quotaMetrics.map(value => `quotaMetric=${redactLogValue(value)}`)
+  ].join(' ');
+  const name = redactLogValue(error?.name || 'Error');
+  const message = redactLogValue(error?.message || '');
+  console.error(`[llm] model=${redactLogValue(model)} status=${originalHttpStatus(error)} name=${name}${quota ? ` ${quota}` : ''} message=${message}`);
 }
 
 class FallbackEligibleError extends Error {
   constructor(originalError) {
-    super('Primary model failed after retries');
+    super('Primary model failed and can use the fallback model');
     this.name = 'FallbackEligibleError';
     this.originalError = originalError;
   }
@@ -65,9 +131,7 @@ function getModel() {
 
 function getClient() {
   const provider = (process.env.LLM_PROVIDER || 'gemini').trim().toLowerCase();
-  if (provider !== 'gemini') {
-    throw new LlmError(503, `LLM_PROVIDER "${provider}" is not supported. Set it to "gemini".`);
-  }
+  if (provider !== 'gemini') throw new LlmError(503, `LLM_PROVIDER "${provider}" is not supported. Set it to "gemini".`);
   if (client) return client;
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new LlmError(503, 'GEMINI_API_KEY is required to answer questions. Add it to server/.env.');
@@ -118,13 +182,19 @@ function waitWithAbort(milliseconds, signal) {
   });
 }
 
-// Both one-shot and streaming calls use this retry and safe-error policy.
-async function retryOperation(operation, { signal, callerSignal, timeoutSignal }, model) {
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-    if (callerSignal?.aborted) return { aborted: true };
-    if (timeoutSignal.aborted) throw timeoutError();
-    if (signal.aborted) return { aborted: true };
+function retryableFailure(error, emittedOutput) {
+  if (emittedOutput) throw safeLlmError(error);
+  throw new FallbackEligibleError(error);
+}
 
+async function runPrimary(operation, { signal, callerSignal, timeoutSignal }, model) {
+  let overloadRetries = 0;
+  let perMinuteRetries = 0;
+  let genericRetries = 0;
+
+  while (true) {
+    if (callerSignal?.aborted || signal.aborted) return { aborted: true };
+    if (timeoutSignal.aborted) throw timeoutError();
     let emittedOutput = false;
     try {
       const value = await raceWithSignal(
@@ -134,26 +204,52 @@ async function retryOperation(operation, { signal, callerSignal, timeoutSignal }
       return { value, aborted: false };
     } catch (error) {
       if (timeoutSignal.aborted) throw timeoutError();
-      if (callerSignal?.aborted || (signal.aborted && !isTimeout(signal, timeoutSignal))) {
-        return { aborted: true };
-      }
+      if (callerSignal?.aborted || (signal.aborted && !isTimeout(signal, timeoutSignal))) return { aborted: true };
       if (error instanceof LlmError) throw error;
 
-      const { retryable } = classifyError(error);
+      const policy = classifyError(error);
       logModelFailure(model, error);
-      if (retryable && !emittedOutput && attempt < MAX_RETRIES) {
-        const waited = await waitWithAbort(retryBaseMs * (2 ** attempt), signal);
+      if (policy.status === 429) {
+        if (policy.perDay) retryableFailure(error, emittedOutput);
+        if (perMinuteRetries > 0) retryableFailure(error, emittedOutput);
+        if (policy.perMinute && perMinuteRetries === 0 && !emittedOutput) {
+          perMinuteRetries += 1;
+          const waited = await waitForRetry(perMinuteWaitMs, signal);
+          if (!waited) {
+            if (timeoutSignal.aborted) throw timeoutError();
+            return { aborted: true };
+          }
+          continue;
+        }
+        retryableFailure(error, emittedOutput);
+      }
+
+      if ((overloadRetries > 0 || perMinuteRetries > 0) && policy.retryable) {
+        retryableFailure(error, emittedOutput);
+      }
+      if (policy.overloaded && overloadRetries === 0 && !emittedOutput) {
+        overloadRetries += 1;
+        const waited = await waitForRetry(overloadWaitMs, signal);
         if (!waited) {
           if (timeoutSignal.aborted) throw timeoutError();
           return { aborted: true };
         }
         continue;
       }
-      if (retryable && !emittedOutput) throw new FallbackEligibleError(error);
+      if (policy.status >= 500 && policy.status < 600 && !policy.overloaded
+        && genericRetries < 2 && !emittedOutput) {
+        const waited = await waitForRetry(genericRetryBaseMs * (2 ** genericRetries), signal);
+        genericRetries += 1;
+        if (!waited) {
+          if (timeoutSignal.aborted) throw timeoutError();
+          return { aborted: true };
+        }
+        continue;
+      }
+      if (policy.retryable) retryableFailure(error, emittedOutput);
       throw safeLlmError(error);
     }
   }
-  throw new LlmError(503, 'The answer service failed after several attempts. Try again later.');
 }
 
 function getFallbackModel(primaryModel) {
@@ -170,24 +266,33 @@ async function runFallback(operation, model, { signal, callerSignal, timeoutSign
   } catch (error) {
     if (timeoutSignal.aborted) throw timeoutError();
     if (callerSignal?.aborted || (signal.aborted && !isTimeout(signal, timeoutSignal))) return { aborted: true };
-    if (error instanceof LlmError) throw error;
-    logModelFailure(model, error);
-    throw safeLlmError(error);
+    if (!(error instanceof LlmError)) logModelFailure(model, error);
+    throw error instanceof LlmError ? error : safeLlmError(error);
   }
 }
 
 async function generateWithFallback(operation, primaryModel, signals) {
   try {
-    return await retryOperation(operation(primaryModel), signals, primaryModel);
+    return await runPrimary(operation(primaryModel), signals, primaryModel);
   } catch (error) {
     const fallbackModel = getFallbackModel(primaryModel);
     if (!(error instanceof FallbackEligibleError) || !fallbackModel) {
       if (error instanceof FallbackEligibleError) throw safeLlmError(error.originalError);
       throw error;
     }
-    const result = await runFallback(operation(fallbackModel), fallbackModel, signals);
-    if (!result.aborted) console.info(`[llm] fallback answered model=${fallbackModel}`);
-    return result;
+    try {
+      const result = await runFallback(operation(fallbackModel), fallbackModel, signals);
+      if (!result.aborted) console.info(`fallback used: ${fallbackModel}`);
+      return result;
+    } catch (fallbackError) {
+      if (fallbackError?.status === 504) throw fallbackError;
+      const publicError = fallbackError instanceof LlmError
+        ? fallbackError
+        : safeLlmError(fallbackError);
+      publicError.message = QUOTA_MESSAGE;
+      publicError.publicMessage = QUOTA_MESSAGE;
+      throw publicError;
+    }
   }
 }
 
@@ -282,5 +387,8 @@ export async function* streamAnswer({ system, user, signal: callerSignal }) {
 
 export function setLlmClientForTests(fakeClient, options = {}) {
   client = fakeClient;
-  retryBaseMs = options.retryBaseMs ?? RETRY_BASE_MS;
+  waitForRetry = options.waitForRetry || waitWithAbort;
+  overloadWaitMs = options.overloadWaitMs ?? DEFAULT_OVERLOAD_WAIT_MS;
+  perMinuteWaitMs = options.perMinuteWaitMs ?? DEFAULT_PER_MINUTE_WAIT_MS;
+  genericRetryBaseMs = options.genericRetryBaseMs ?? GENERIC_RETRY_BASE_MS;
 }

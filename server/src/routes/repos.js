@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { Chunk } from '../models/Chunk.js';
 import { Repo } from '../models/Repo.js';
 import { Message } from '../models/Message.js';
+import { AnswerCache } from '../models/AnswerCache.js';
 import { ingestRepository } from '../services/ingestion.js';
 import { generateAnswer, streamAnswer } from '../services/llm.js';
 import { isMissingVectorIndex, retrieveChunks } from '../services/retrieval.js';
@@ -12,6 +13,7 @@ import { cleanCitationMarkers, isGroundedAnswer, NOT_FOUND_ANSWER, prepareAnswer
 import { formatSseEvent, startSseHeartbeat } from '../services/sse.js';
 import { embedQuery } from '../services/embeddings.js';
 import { reserveDailyModelCall } from '../services/dailyAskLimit.js';
+import { cacheGroundedAnswer, deleteRepoAnswerCache, getCachedAnswerOrRun, getOrGenerateAnswer } from '../services/answerCache.js';
 const router = Router();
 router.use(requireAuth);
 
@@ -89,7 +91,6 @@ async function getAskRepo(req, res, shouldStop = () => false) {
     res.status(409).json({ error: `Repository is not ready for questions (status: ${repo.status}).` });
     return null;
   }
-  if (!await requireRepoEmbeddings(repo, res, 'questions', shouldStop)) return null;
   return repo;
 }
 
@@ -223,35 +224,44 @@ router.post('/:id/search', searchLimiter, async (req, res, next) => {
 });
 
 router.post('/:id/ask', askLimiter, async (req, res, next) => {
+  const generationController = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) generationController.abort();
+  });
   try {
     const repo = await getAskRepo(req, res);
     if (!repo) return;
     const question = getAskInput(req, res);
     if (!question) return;
-    let prepared;
-    try {
-      prepared = await prepareAnswer(repo._id, question, repo.overview);
-    } catch (error) {
-      return next(withVectorIndexMessage(error));
-    }
-    const sources = prepared.sources;
-    let answer = NOT_FOUND_ANSWER;
-    if (prepared.prompt) {
-      await reserveDailyModelCall();
-      answer = cleanCitationMarkers(await generateAnswer(prepared.prompt), sources);
-    }
-    const grounded = isGroundedAnswer(answer, sources);
+    const result = await getOrGenerateAnswer({ repoId: repo._id, question, model: AnswerCache, generate: async () => {
+      if (!await requireRepoEmbeddings(repo, res, 'questions')) return null;
+      let prepared;
+      try {
+        prepared = await prepareAnswer(repo._id, question, repo.overview);
+      } catch (error) {
+        throw withVectorIndexMessage(error);
+      }
+      let answer = NOT_FOUND_ANSWER;
+      if (prepared.prompt) {
+        if (generationController.signal.aborted) return null;
+        await reserveDailyModelCall();
+        answer = cleanCitationMarkers(await generateAnswer({ ...prepared.prompt, signal: generationController.signal }), prepared.sources);
+      }
+      return { answer, sources: prepared.sources };
+    } });
+    if (!result) return;
 
     await Message.create({
       userId: req.auth.sub,
       repoId: repo._id,
       question,
-      answer,
-      grounded,
-      sources
+      answer: result.answer,
+      grounded: result.grounded,
+      sources: result.sources
     });
-    return res.json({ answer, sources, grounded });
+    return res.json({ answer: result.answer, sources: result.sources, grounded: result.grounded });
   } catch (error) {
+    if (generationController.signal.aborted) return;
     return next(error);
   }
 });
@@ -300,7 +310,20 @@ router.post('/:id/ask/stream', askLimiter, async (req, res, next) => {
 
     let prepared;
     try {
-      prepared = await prepareAnswer(repo._id, question, repo.overview);
+      const cacheResult = await getCachedAnswerOrRun({
+        repoId: repo._id,
+        question,
+        onMiss: async () => {
+          if (!await requireRepoEmbeddings(repo, res, 'questions', () => disconnected)) return null;
+          if (disconnected) return null;
+          return prepareAnswer(repo._id, question, repo.overview);
+        }
+      });
+      if (!cacheResult.cacheHit && !cacheResult.value) return;
+      if (disconnected) return;
+      prepared = cacheResult.cacheHit
+        ? { sources: cacheResult.cached.sources, answer: cacheResult.cached.answer, prompt: null, cacheHit: true }
+        : cacheResult.value;
     } catch (error) {
       const streamError = withVectorIndexMessage(error);
       if (!beginStream()) return;
@@ -324,7 +347,12 @@ router.post('/:id/ask/stream', askLimiter, async (req, res, next) => {
     }
 
     let answer = prepared.answer;
-    if (prepared.prompt) {
+    if (prepared.cacheHit) {
+      if (!sendSse(res, 'token', { text: answer })) {
+        markDisconnected();
+        return;
+      }
+    } else if (prepared.prompt) {
       answer = '';
       for await (const text of streamAnswer({ ...prepared.prompt, signal: generationController.signal })) {
         if (disconnected) return;
@@ -338,6 +366,7 @@ router.post('/:id/ask/stream', askLimiter, async (req, res, next) => {
     }
     if (disconnected) return;
     const grounded = isGroundedAnswer(answer, prepared.sources);
+    if (!prepared.cacheHit) await cacheGroundedAnswer(repo._id, question, answer, prepared.sources);
 
     const message = await Message.create({
       userId: req.auth.sub,
@@ -405,6 +434,7 @@ router.delete('/:id', async (req, res, next) => {
     if (!repo) return res.status(404).json({ error: 'Repository not found' });
     await Chunk.deleteMany({ repoId: repo._id, userId: req.auth.sub });
     await Message.deleteMany({ repoId: repo._id, userId: req.auth.sub });
+    await deleteRepoAnswerCache(repo._id);
     await Repo.deleteOne({ _id: repo._id, userId: req.auth.sub });
     return res.json({ message: 'Repository and its chunks were deleted' });
   } catch (error) {

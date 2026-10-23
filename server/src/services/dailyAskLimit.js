@@ -1,6 +1,6 @@
 import { GlobalDailyAskUsage } from '../models/GlobalDailyAskUsage.js';
 
-export const DAILY_ASK_LIMIT_MESSAGE = 'The demo has reached its daily limit. Try again tomorrow.';
+export const DAILY_ASK_LIMIT_MESSAGE = 'The demo has reached its daily limit. Cached questions still work.';
 
 export function getGlobalDailyAskLimit(value = process.env.GLOBAL_DAILY_ASK_LIMIT) {
   const configured = String(value ?? '').trim();

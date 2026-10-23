@@ -26,6 +26,7 @@ test('uses the default daily limit and refuses reservations after the cap', asyn
   assert.equal(getGlobalDailyAskLimit(''), 200);
   assert.equal(getGlobalDailyAskLimit('invalid'), 200);
   assert.equal(getGlobalDailyAskLimit('3'), 3);
+  assert.match(new DailyAskLimitError().publicMessage, /Cached questions still work/);
 
   let record;
   const fakeModel = {

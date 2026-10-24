@@ -8,11 +8,11 @@ RepoMentor answers questions about GitHub repository code and cites the files an
 
 ## Demo
 
-<!-- TODO: Add docs/demo.gif. This file is currently missing. -->
-<!-- TODO: Add docs/screenshots/login.png. This file is currently missing. -->
-<!-- TODO: Add docs/screenshots/repos.png. This file is currently missing. -->
-<!-- TODO: Add docs/screenshots/answer.png. This file is currently missing. -->
-<!-- TODO: Add docs/screenshots/mobile.png. This file is currently missing. -->
+A short walkthrough of RepoMentor:
+
+https://github.com/user-attachments/assets/5b08716f-b5c2-4cb6-a49c-3d8d497440d4
+
+
 
 ## What it does
 

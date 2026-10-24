@@ -5,3 +5,4 @@ dist/
 !.env.example
 coverage/
 npm-debug.log*
+PROJECT_INTERVIEW_GUIDE/

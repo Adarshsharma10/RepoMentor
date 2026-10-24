@@ -6,6 +6,14 @@ RepoMentor answers questions about GitHub repository code and cites the files an
 
 **Live demo:** https://repo-mentor-five.vercel.app/ — Free hosting may take up to a minute to wake up, and the free model quota can run out.
 
+## Demo
+
+<!-- TODO: Add docs/demo.gif. This file is currently missing. -->
+<!-- TODO: Add docs/screenshots/login.png. This file is currently missing. -->
+<!-- TODO: Add docs/screenshots/repos.png. This file is currently missing. -->
+<!-- TODO: Add docs/screenshots/answer.png. This file is currently missing. -->
+<!-- TODO: Add docs/screenshots/mobile.png. This file is currently missing. -->
+
 ## What it does
 
 RepoMentor indexes a snapshot of a GitHub repository and stores code chunks and their embeddings in MongoDB Atlas. You can ask questions about a ready repository, and the server retrieves relevant chunks before asking Gemini to answer from that context. Answers include numbered citations that open the matching file and line range. A cached grounded answer can be reused for a repeated question.
@@ -53,7 +61,7 @@ The fallback model is optional and is attempted only for eligible provider failu
 
 ## Architecture
 
-The diagram shows the intended hosted arrangement described in this guide; this repository does not include provider deployment configuration.
+RepoMentor is deployed with the client on Vercel at the Live demo link, the API on Render, and the database on MongoDB Atlas. The hosting settings live in those provider dashboards, not in this repository.
 
 ```mermaid
 flowchart LR
@@ -80,7 +88,7 @@ flowchart LR
 
 ## Evaluation
 
-The evaluation script checks 20 positive questions and 5 off-topic questions against one selected, ready repository index. It uses top-5 retrieval by default, reports hit rate, mean reciprocal rank (MRR), precision@5, and negative-query scores. The table below reports the supplied results for the same repository snapshot in each mode.
+The evaluation script checks 20 positive questions and 5 off-topic questions against one selected, ready repository index. It uses top-5 retrieval by default, reports hit rate, mean reciprocal rank (MRR), precision@5, and negative-query scores. The table below reports the measured results for the same repository snapshot in each mode.
 
 | Chunking mode | Hit rate | MRR | Precision@5 |
 | --- | ---: | ---: | ---: |
@@ -88,6 +96,8 @@ The evaluation script checks 20 positive questions and 5 off-topic questions aga
 | AST mode | 100% | 0.942 | 0.47 |
 
 The test set is small and the index grows as the project grows, so treat the results as indicative, not as a benchmark.
+
+A later run on the larger index gave 100% hit rate, MRR 0.877 and precision@5 0.46, so the numbers move as the repository changes.
 
 ## Run locally
 
@@ -100,10 +110,10 @@ The test set is small and the index grows as the project grows, so treat the res
 
 ### Install and configure
 
-Clone the repository, then run these commands from its root. Replace `<repository-url>` with the URL of this project:
+Clone the repository, then run these commands from its root:
 
 ```sh
-git clone <repository-url>
+git clone https://github.com/Adarshsharma10/RepoMentor.git
 cd RepoMentor
 npm ci
 ```
@@ -193,7 +203,7 @@ The API listens on port `4000` by default. `GET /api/health` reports API and dat
 
 ## Deployment
 
-The deployment instructions below describe a Vercel client and Render API setup. Hosting accounts and service settings are not configured in this repository.
+RepoMentor is deployed with its client on Vercel, API on Render, and database on MongoDB Atlas. Hosting settings live in those provider dashboards, not in this repository. The steps below describe the deployment settings to use or verify in those dashboards.
 
 ### MongoDB Atlas
 
